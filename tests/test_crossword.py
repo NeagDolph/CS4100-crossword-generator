@@ -15,8 +15,40 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from crossword_package import (
     CrosswordGrid, CrosswordValidator, CrosswordCreator, 
-    CrosswordPlayer, CrosswordPuzzle, Direction, WordPlacement, WORDS
+    CrosswordPlayer, CrosswordPuzzle, Direction, WordPlacement, 
+    WordDataManager
 )
+
+# Create a test word data manager with limited data for testing
+class TestWordDataManager(WordDataManager):
+    """Test word data manager with hardcoded data for unit tests."""
+    
+    def __init__(self):
+        """Initialize with test data instead of loading CSV."""
+        self.csv_file_path = "test_data.csv"
+        self.word_clues = []
+        self.word_to_clues = {}
+        self._loaded = True
+        
+        # Test words with clues
+        test_data = [
+            ("HELLO", "Greeting"),
+            ("WORLD", "Earth"),
+            ("HELP", "Assistance"),
+            ("HOUSE", "Dwelling"),
+            ("APPLE", "Red fruit"),
+            ("BANANA", "Yellow fruit"),
+            ("TEST", "Examination"),
+            ("EXAMPLE", "I don't understand. Give me an __"),
+        ]
+        
+        from crossword_package.word_data import WordClue
+        for word, clue in test_data:
+            word_clue = WordClue(word, clue)
+            self.word_clues.append(word_clue)
+            if word not in self.word_to_clues:
+                self.word_to_clues[word] = []
+            self.word_to_clues[word].append(word_clue)
 
 class TestCrosswordGrid(unittest.TestCase):
     """Test cases for CrosswordGrid class"""
@@ -267,7 +299,8 @@ class TestCrosswordCreator(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.grid = CrosswordGrid(10)
-        self.creator = CrosswordCreator(self.grid, WORDS)
+        self.test_word_manager = TestWordDataManager()
+        self.creator = CrosswordCreator(self.grid, self.test_word_manager)
     
     def test_place_word(self):
         """Test word placement"""
@@ -343,7 +376,8 @@ class TestCrosswordPlayer(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.grid = CrosswordGrid(10)
-        self.creator = CrosswordCreator(self.grid, WORDS)
+        self.test_word_manager = TestWordDataManager()
+        self.creator = CrosswordCreator(self.grid, self.test_word_manager)
         self.creator.place_word("HELLO", 2, 2, Direction.ACROSS)
         self.creator.place_word("WORLD", 1, 6, Direction.DOWN)  # Intersects at (2,6) with O
         self.player = CrosswordPlayer(self.creator)
@@ -429,7 +463,7 @@ class TestCrosswordPlayer(unittest.TestCase):
         self.assertEqual(len(clues), 1)
         clue = clues[0]
         self.assertEqual(clue["direction"], 'across')
-        self.assertIn('Word', clue["clue"])  # Default clue format
+        self.assertEqual(clue["clue"], "Greeting")  # Expected clue from TestWordDataManager
         self.assertIn("positions", clue)
         
         # Test position with two words (intersection at 2,6)
@@ -465,11 +499,11 @@ class TestCrosswordPlayer(unittest.TestCase):
         """Test getting clue for a specific word placement"""
         word_placement = self.player.word_placements[0]
         
-        # Test with default clue (no clue set)
+        # Test with clue from TestWordDataManager
         clue = self.player.get_clue_for_word(word_placement)
-        self.assertIn('Word', clue)
+        self.assertEqual(clue, "Greeting")  # Expected clue from TestWordDataManager
         
-        # Test with custom clue
+        # Test with custom clue override
         word_placement.clue = "A friendly greeting"
         clue = self.player.get_clue_for_word(word_placement)
         self.assertEqual(clue, "A friendly greeting")
@@ -583,7 +617,8 @@ class TestCrosswordPuzzle(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures"""
-        self.puzzle = CrosswordPuzzle(10, WORDS)
+        self.test_word_manager = TestWordDataManager()
+        self.puzzle = CrosswordPuzzle(10, self.test_word_manager)
     
     def test_puzzle_initialization(self):
         """Test puzzle initialization"""
@@ -651,7 +686,7 @@ class TestCrosswordPuzzle(unittest.TestCase):
         self.assertIn('word_placements', state)
         
         # Create new puzzle and load state
-        new_puzzle = CrosswordPuzzle(10, WORDS)
+        new_puzzle = CrosswordPuzzle(10, self.test_word_manager)
         success = new_puzzle.load_puzzle_state(state)
         
         self.assertTrue(success)
@@ -664,7 +699,8 @@ class TestIntegration(unittest.TestCase):
     def test_full_workflow(self):
         """Test complete workflow from creation to solving"""
         # Create puzzle
-        puzzle = CrosswordPuzzle(8, ['HELLO', 'WORLD', 'TEST'])
+        test_word_manager = TestWordDataManager()
+        puzzle = CrosswordPuzzle(8, test_word_manager)
         
         # Manually create a simple puzzle
         creator = puzzle.get_creator()
