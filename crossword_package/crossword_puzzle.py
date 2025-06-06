@@ -9,6 +9,7 @@ from typing import Optional, List
 from .crossword_grid import CrosswordGrid
 from .crossword_creator import CrosswordCreator
 from .crossword_player import CrosswordPlayer
+from .word_data import WordDataManager
 
 class CrosswordPuzzle:
     """
@@ -16,18 +17,74 @@ class CrosswordPuzzle:
     Coordinates between creation and gameplay phases.
     """
     
-    def __init__(self, size: int = 15, available_words: List[str] = None):
+    def __init__(self, size: int = 15, word_data_manager: Optional[WordDataManager] = None, 
+                 csv_file_path: str = "nytcrosswords.csv"):
         """
         Initialize a crossword puzzle.
         
         Args:
             size: Size of the crossword grid
-            available_words: List of words available for puzzle creation
+            word_data_manager: Optional pre-configured WordDataManager
+            csv_file_path: Path to CSV file with word-clue data (used if word_data_manager not provided)
         """
         self.grid = CrosswordGrid(size)
-        self.creator = CrosswordCreator(self.grid, available_words or [])
+        
+        # Initialize word data manager
+        if word_data_manager:
+            self.word_data_manager = word_data_manager
+        else:
+            self.word_data_manager = WordDataManager(csv_file_path)
+        
+        self.creator = CrosswordCreator(self.grid, self.word_data_manager)
         self.player: Optional[CrosswordPlayer] = None
         self.is_created = False
+    
+    def get_word_statistics(self) -> dict:
+        """
+        Get statistics about available words.
+        
+        Returns:
+            Dictionary with word statistics
+        """
+        return self.word_data_manager.get_statistics()
+    
+    def get_random_words(self, count: int = 50, min_length: int = 3, max_length: int = 15) -> List[str]:
+        """
+        Get random words for manual puzzle creation.
+        
+        Args:
+            count: Number of words to return
+            min_length: Minimum word length
+            max_length: Maximum word length
+            
+        Returns:
+            List of random words
+        """
+        return self.word_data_manager.get_random_words(count, min_length, max_length)
+    
+    def search_words(self, pattern: str) -> List[str]:
+        """
+        Search for words containing a pattern.
+        
+        Args:
+            pattern: Pattern to search for
+            
+        Returns:
+            List of matching words
+        """
+        return self.word_data_manager.search_words_by_pattern(pattern)
+    
+    def get_clue_for_word(self, word: str) -> Optional[str]:
+        """
+        Get a clue for a specific word.
+        
+        Args:
+            word: Word to get clue for
+            
+        Returns:
+            Clue for the word, or None if not found
+        """
+        return self.word_data_manager.get_clue_for_word(word)
     
     def create_custom_puzzle(self) -> bool:
         """
@@ -158,6 +215,7 @@ class CrosswordPuzzle:
         state = {
             'is_created': self.is_created,
             'grid_size': self.grid.size,
+            'csv_file_path': self.word_data_manager.csv_file_path,
             'word_placements': [
                 {
                     'word': wp.word,
@@ -168,8 +226,7 @@ class CrosswordPuzzle:
                     'number': wp.number
                 }
                 for wp in self.creator.word_placements
-            ],
-            'available_words': self.creator.available_words.copy()
+            ]
         }
         
         if self.player:
@@ -192,25 +249,19 @@ class CrosswordPuzzle:
             True if state was successfully loaded, False otherwise
         """
         try:
-            # Recreate grid and creator
+            # Recreate grid and word data manager
             self.grid = CrosswordGrid(state['grid_size'])
-            self.creator = CrosswordCreator(self.grid, state['available_words'])
+            csv_path = state.get('csv_file_path', 'nytcrosswords.csv')
+            self.word_data_manager = WordDataManager(csv_path)
+            self.creator = CrosswordCreator(self.grid, self.word_data_manager)
             
             # Recreate word placements
             from .word_placement import Direction, WordPlacement
             
             for wp_data in state['word_placements']:
                 direction = Direction.ACROSS if wp_data['direction'] == 'across' else Direction.DOWN
-                word_placement = WordPlacement(
-                    wp_data['word'],
-                    wp_data['row'],
-                    wp_data['col'],
-                    direction,
-                    wp_data['clue'],
-                    wp_data['number']
-                )
                 
-                # Place the word on the grid
+                # Place the word on the grid with its clue
                 self.creator.place_word(
                     wp_data['word'],
                     wp_data['row'],
@@ -218,6 +269,17 @@ class CrosswordPuzzle:
                     direction,
                     wp_data['clue']
                 )
+                
+                # Update the number if present
+                if 'number' in wp_data and wp_data['number'] > 0:
+                    # Find the just-placed word and update its number
+                    for placement in self.creator.word_placements:
+                        if (placement.word == wp_data['word'] and 
+                            placement.row == wp_data['row'] and 
+                            placement.col == wp_data['col'] and 
+                            placement.direction == direction):
+                            placement.number = wp_data['number']
+                            break
             
             self.is_created = state['is_created']
             
