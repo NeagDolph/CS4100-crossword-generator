@@ -1,7 +1,6 @@
 # CS4100 Project Proposal
 
-## Neil Agrawal, Evelyn Robert, Kelsey Nihezagirwe, Rusheel Sharma
-
+## Neil Agrawal, Evelyn Robert, Kelsey Nihezagirwe
 ## Overview
 
 We propose to build a fully automatic crossword-puzzle generator that, given a curated list of words and their human-written clues, outputs a complete American-style crossword grid that satisfies symmetry, connectivity, and high fill density. The system will rely solely on classic AI search and constraint-satisfaction techniques, not large language models.
