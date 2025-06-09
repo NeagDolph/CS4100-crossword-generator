@@ -30,10 +30,6 @@ class CrosswordCreator:
         self.word_placements: List[WordPlacement] = []
         self.word_data_manager = word_data_manager
         
-        # Legacy support for backwards compatibility
-        self.available_words = []
-        if word_data_manager:
-            self.available_words = word_data_manager.get_random_words(100)
     
     def place_word(self, word: str, row: int, col: int, direction: Direction, 
                    clue: str = "") -> bool:
@@ -109,7 +105,7 @@ class CrosswordCreator:
         if self.word_data_manager:
             return self.word_data_manager.get_random_words(count, min_length, max_length)
         else:
-            return self.available_words[:count] if self.available_words else []
+            raise ValueError("WordDataManager not provided")
     
     def find_words_that_intersect(self, existing_word: str, position: int, 
                                   direction: Direction, min_length: int = 3, 
