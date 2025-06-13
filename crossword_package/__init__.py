@@ -12,20 +12,18 @@ from .crossword_validator import CrosswordValidator
 from .crossword_creator import CrosswordCreator
 from .crossword_player import CrosswordPlayer
 from .crossword_puzzle import CrosswordPuzzle
+from .csp_solver import CSPSolver, FastWordIndex, Slot, Heuristics
 from .word_data import WordDataManager, WordClue, word_data_manager
 
 # Constants
 GRID_SIZE = 15
 
-# Legacy word list
-WORDS = ['APPLE', 'BANANA', 'ORANGE', 'GRAPE', 'PEAR', 'PLUM', 'MELON', 'KIWI']
-
 __all__ = [
     'Direction', 'WordPlacement', 'CrosswordGrid', 'CrosswordValidator',
     'CrosswordCreator', 'CrosswordPlayer', 'CrosswordPuzzle',
     'WordDataManager', 'WordClue', 'word_data_manager',
-    'GRID_SIZE', 'WORDS'
+    'GRID_SIZE'
 ]
 
 __version__ = '1.0.0'
-__author__ = 'CS4100 Final Project' 
+__author__ = 'Neil Agrawal, Evelyn Robert, Kelsey Nihezagirwe' 

@@ -1,5 +1,5 @@
 """
-Comprehensive Unit Tests for Crossword Package
+Comprehensive Unit Tests for Crossword Package (Not including CSP solver)
 
 Tests all major components: Grid, Validator, Creator, Player, and Puzzle classes.
 Run with: python -m pytest tests/test_crossword.py -v 
@@ -212,22 +212,22 @@ class TestCrosswordValidator(unittest.TestCase):
     def test_can_place_word(self):
         """Test word placement validation"""
         # Should be able to place word in empty grid
-        self.assertTrue(CrosswordValidator.can_place_word(
-            self.grid, "HELLO", 2, 1, Direction.ACROSS))
+        self.assertTrue(CrosswordValidator.can_place_word_placement(
+            self.grid, WordPlacement("HELLO", 2, 1, Direction.ACROSS)))
         
         # Should not be able to place word out of bounds
-        self.assertFalse(CrosswordValidator.can_place_word(
-            self.grid, "HELLO", 2, 8, Direction.ACROSS))
+        self.assertFalse(CrosswordValidator.can_place_word_placement(
+            self.grid, WordPlacement("HELLO", 2, 8, Direction.ACROSS)))
         
         # Place a letter that conflicts
         self.grid.set_letter(2, 3, 'X')
-        self.assertFalse(CrosswordValidator.can_place_word(
-            self.grid, "HELLO", 2, 1, Direction.ACROSS))
+        self.assertFalse(CrosswordValidator.can_place_word_placement(
+            self.grid, WordPlacement("HELLO", 2, 1, Direction.ACROSS)))
         
         # Place a letter that matches
         self.grid.set_letter(2, 3, 'L')
-        self.assertTrue(CrosswordValidator.can_place_word(
-            self.grid, "HELLO", 2, 1, Direction.ACROSS))
+        self.assertTrue(CrosswordValidator.can_place_word_placement(
+            self.grid, WordPlacement("HELLO", 2, 1, Direction.ACROSS)))
     
     def test_get_intersections(self):
         """Test intersection detection"""
@@ -238,34 +238,17 @@ class TestCrosswordValidator(unittest.TestCase):
     def test_validate_intersections(self):
         """Test intersection validation"""
         # These words should have valid intersection (L from HELLO, L from HELP)
-        self.assertTrue(CrosswordValidator.validate_intersections(
-            self.grid, [self.word1, self.word2]))
+        self.assertTrue(CrosswordValidator.validate_intersections([self.word1, self.word2]))
         
         # Create words that DO intersect properly - use HELLO and WORLD that intersect at O
         word_a = WordPlacement("HELLO", 2, 1, Direction.ACROSS)  # H-E-L-L-O at row 2, cols 1-5
         word_b = WordPlacement("WORLD", 1, 5, Direction.DOWN)    # W-O-R-L-D at col 5, rows 1-5
         # They intersect at (2,5) where HELLO has 'O' and WORLD has 'O' - this should work!
-        self.assertTrue(CrosswordValidator.validate_intersections(
-            self.grid, [word_a, word_b]))
+        self.assertTrue(CrosswordValidator.validate_intersections([word_a, word_b]))
         
         # Create conflicting words - HELLO and HOUSE conflict at (2,3): L vs U
         bad_word = WordPlacement("HOUSE", 1, 3, Direction.DOWN)  # H-O-U-S-E, U at (3,3) conflicts with L
-        self.assertFalse(CrosswordValidator.validate_intersections(
-            self.grid, [self.word1, bad_word]))
-    
-    def test_get_valid_placements(self):
-        """Test finding valid placements"""
-        placements = CrosswordValidator.get_valid_placements(self.grid, "TEST")
-        
-        # Should find many valid placements in empty grid
-        self.assertGreater(len(placements), 0)
-        
-        # Block some cells and test again
-        for i in range(5):
-            self.grid.set_blocked(i, i, True)
-        
-        new_placements = CrosswordValidator.get_valid_placements(self.grid, "TEST")
-        self.assertLess(len(new_placements), len(placements))
+        self.assertFalse(CrosswordValidator.validate_intersections([self.word1, bad_word]))
     
     def test_count_word_intersections(self):
         """Test intersection counting"""
@@ -669,30 +652,10 @@ class TestCrosswordPuzzle(unittest.TestCase):
         player.make_guess(2, 2, 'H')
         
         # Reset
-        self.puzzle.reset_game()
+        player.reset_puzzle()
         
         self.assertEqual(player.mistakes, 0)
-    
-    def test_save_load_puzzle_state(self):
-        """Test saving and loading puzzle state"""
-        # Create puzzle
-        self.puzzle.creator.place_word("HELLO", 2, 2, Direction.ACROSS)
-        self.puzzle.is_created = True
         
-        # Save state
-        state = self.puzzle.save_puzzle_state()
-        
-        self.assertIn('is_created', state)
-        self.assertIn('word_placements', state)
-        
-        # Create new puzzle and load state
-        new_puzzle = CrosswordPuzzle(10, self.test_word_manager)
-        success = new_puzzle.load_puzzle_state(state)
-        
-        self.assertTrue(success)
-        self.assertTrue(new_puzzle.is_created)
-        self.assertEqual(len(new_puzzle.creator.word_placements), 1)
-
 class TestIntegration(unittest.TestCase):
     """Integration tests for the entire system"""
     

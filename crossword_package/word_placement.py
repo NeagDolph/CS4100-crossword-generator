@@ -33,6 +33,19 @@ class WordPlacement:
     clue: str = ""
     number: int = 0
     
+    def __hash__(self) -> int:
+        """Make WordPlacement hashable so it can be used in sets."""
+        return hash((self.word, self.row, self.col, self.direction))
+    
+    def __eq__(self, other) -> bool:
+        """Define equality for WordPlacement objects."""
+        if not isinstance(other, WordPlacement):
+            return False
+        return (self.word == other.word and 
+                self.row == other.row and 
+                self.col == other.col and 
+                self.direction == other.direction)
+    
     def get_end_position(self) -> Tuple[int, int]:
         """
         Get the ending position of this word.

@@ -34,7 +34,7 @@ class WordDataManager:
     Manages word-clue data loading and filtering.
     """
     
-    def __init__(self, csv_file_path: str = "nytcrosswords.csv"):
+    def __init__(self, csv_file_path: str = "clues_bigdave.csv"):
         """
         Initialize the word data manager.
         
@@ -68,13 +68,18 @@ class WordDataManager:
                         
                         for row in reader:
                             # Skip rows with missing data
-                            if not row.get('Word') or not row.get('Clue'):
+                            if not row.get('answer') or not row.get('clue'):
+                                continue
+                                
+                            word = row['answer'].strip()
+                            # Skip words containing dashes or spaces
+                            if '-' in word or ' ' in word:
                                 continue
                             
                             word_clue = WordClue(
-                                word=row['Word'].strip(),
-                                clue=row['Clue'].strip(),
-                                date=row.get('Date', '').strip() if row.get('Date') else None
+                                word=word,
+                                clue=row['clue'].strip(),
+                                date=row.get('puzzle_date', '').strip() if row.get('puzzle_date') else None
                             )
                             
                             self.word_clues.append(word_clue)
@@ -184,6 +189,15 @@ class WordDataManager:
         
         return []
     
+    def search_words_by_pattern(self, pattern: str) -> List[str]:
+        """
+        Search for words containing a pattern.
+        
+        Args:
+            pattern: Pattern to search for
+        """
+        
+    
     def get_word_clue_pairs(self, words: List[str]) -> List[Tuple[str, str]]:
         """
         Get word-clue pairs for a list of words.
@@ -206,20 +220,6 @@ class WordDataManager:
                 pairs.append((word.upper(), f"Word: {word}"))
         
         return pairs
-    
-    def search_words_by_pattern(self, pattern: str) -> List[str]:
-        """
-        Search for words matching a pattern (simple contains search).
-        
-        Args:
-            pattern: String pattern to search for
-            
-        Returns:
-            List of words containing the pattern
-        """
-        self.ensure_loaded()
-        pattern = pattern.upper()
-        return [word for word in self.word_to_clues.keys() if pattern in word]
     
     def get_statistics(self) -> Dict[str, int]:
         """
