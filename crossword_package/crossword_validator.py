@@ -16,22 +16,19 @@ class CrosswordValidator:
     """
     
     @staticmethod
-    def can_place_word(grid: CrosswordGrid, word: str, row: int, col: int, 
-                      direction: Direction) -> bool:
+    def can_place_word_placement(grid: CrosswordGrid, placement: WordPlacement) -> bool:
         """
-        Check if a word can be placed at the given position.
+        Check if a word placement can be placed at the specified position.
         
         Args:
             grid: The crossword grid
-            word: Word to place
-            row: Starting row position
-            col: Starting column position
-            direction: Direction to place word
+            placement: WordPlacement object containing word and position data
             
         Returns:
             True if word can be placed, False otherwise
         """
-        word = word.upper()
+        word = placement.word.upper()
+        row, col, direction = placement.row, placement.col, placement.direction
         
         # Check bounds
         if direction == Direction.ACROSS:
@@ -59,6 +56,8 @@ class CrosswordValidator:
         
         return True
     
+
+    
     @staticmethod
     def get_intersections(placement1: WordPlacement, placement2: WordPlacement) -> List[Tuple[int, int]]:
         """
@@ -76,7 +75,7 @@ class CrosswordValidator:
         return list(positions1.intersection(positions2))
     
     @staticmethod
-    def validate_intersections(grid: CrosswordGrid, placements: List[WordPlacement]) -> bool:
+    def validate_intersections(placements: List[WordPlacement]) -> bool:
         """
         Validate that all word intersections have matching letters.
         
@@ -157,33 +156,9 @@ class CrosswordValidator:
                     not grid.is_blocked(adj_row, adj_col) and 
                     grid.get_letter(adj_row, adj_col) != ''):
                     
-                    # There's a letter adjacent - check if it's part of a crossing word
-                    # TODO: We want to ensure that the adjacent letter is part of a valid crossing word
                     pass
         
         return True
-    
-    @staticmethod
-    def get_valid_placements(grid: CrosswordGrid, word: str) -> List[Tuple[int, int, Direction]]:
-        """
-        Get all valid placements for a word on the grid.
-        
-        Args:
-            grid: The crossword grid
-            word: Word to find placements for
-            
-        Returns:
-            List of (row, col, direction) tuples for valid placements
-        """
-        valid_placements = []
-        
-        for row in range(grid.size):
-            for col in range(grid.size):
-                for direction in [Direction.ACROSS, Direction.DOWN]:
-                    if CrosswordValidator.can_place_word(grid, word, row, col, direction):
-                        valid_placements.append((row, col, direction))
-        
-        return valid_placements
     
     @staticmethod
     def count_word_intersections(placements: List[WordPlacement]) -> int:

@@ -48,7 +48,8 @@ def create_csv_based_puzzle_demo():
     if long_words:
         word = long_words[0]
         clue = puzzle.get_clue_for_word(word)
-        success = creator.place_word_with_auto_clue(word, 6, 2, Direction.ACROSS)
+        placement = WordPlacement(word, 6, 2, Direction.ACROSS, clue)
+        success = creator.place_word_placement(placement)
         if success:
             placed_words.append((word, clue))
             print(f"Placed '{word}' ACROSS at (6,2)")
@@ -58,9 +59,10 @@ def create_csv_based_puzzle_demo():
     if medium_words and placed_words:
         for word in medium_words:
             # Try to place it intersecting with the first word
-            success = creator.place_word_with_auto_clue(word, 3, 5, Direction.DOWN)
+            clue = puzzle.get_clue_for_word(word)
+            placement = WordPlacement(word, 3, 5, Direction.DOWN, clue)
+            success = creator.place_word_placement(placement)
             if success:
-                clue = puzzle.get_clue_for_word(word)
                 placed_words.append((word, clue))
                 print(f"Placed '{word}' DOWN at (3,5)")
                 print(f"  Clue: {clue}")
@@ -69,9 +71,10 @@ def create_csv_based_puzzle_demo():
     # Try to place another intersecting word
     if short_words and len(placed_words) >= 2:
         for word in short_words:
-            success = creator.place_word_with_auto_clue(word, 7, 6, Direction.DOWN)
+            clue = puzzle.get_clue_for_word(word)
+            placement = WordPlacement(word, 7, 6, Direction.DOWN, clue)
+            success = creator.place_word_placement(placement)
             if success:
-                clue = puzzle.get_clue_for_word(word)
                 placed_words.append((word, clue))
                 print(f"Placed '{word}' DOWN at (7,6)")
                 print(f"  Clue: {clue}")
