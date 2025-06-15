@@ -1,0 +1,1137 @@
+#!/usr/bin/env python3
+"""
+Complete Simulated Annealing Crossword Generator Demo
+
+This is a self-contained demo that generates crossword puzzles using simulated annealing.
+Run this script directly to see the SA crossword generator in action.
+
+Usage:
+    python sa_crossword_demo.py
+"""
+
+import random
+import math
+import numpy as np
+from typing import List, Dict, Tuple, Optional, Set
+from dataclasses import dataclass, field
+from collections import defaultdict
+from enum import Enum
+import copy
+
+# Utility functions
+def exponential_random_choice(max_val: int, lambd: float = 0.5) -> int:
+    """Choose a random number from 1 to max_val with exponential distribution."""
+    if max_val <= 1:
+        return 1
+    # Generate exponential random variable
+    x = random.expovariate(lambd)
+    # Scale and clamp to [1, max_val]
+    result = int(x * max_val / 3) + 1  # Divide by 3 to adjust scale
+    return min(max_val, max(1, result))
+
+def frequency_score(word: str) -> float:
+    """Calculate frequency score based on common letters."""
+    common_letters = {
+        'E': 12.02, 'T': 9.10, 'A': 8.12, 'O': 7.68, 'I': 6.97, 'N': 6.75,
+        'S': 6.33, 'H': 6.09, 'R': 5.99, 'D': 4.25, 'L': 4.03, 'C': 2.78,
+        'U': 2.76, 'M': 2.41, 'W': 2.36, 'F': 2.23, 'G': 2.02, 'Y': 1.97,
+        'P': 1.93, 'B': 1.29, 'V': 0.98, 'K': 0.77, 'J': 0.15, 'X': 0.15,
+        'Q': 0.10, 'Z': 0.07
+    }
+    
+    if not word:
+        return 0.0
+    
+    total_score = 0.0
+    for char in word.upper():
+        total_score += common_letters.get(char, 0.1)  # Low score for uncommon letters
+    
+    return total_score / len(word)  # Average frequency
+
+# Core classes
+class Direction(Enum):
+    """Enumeration for word direction in crossword puzzle"""
+    ACROSS = "across"
+    DOWN = "down"
+
+@dataclass
+class WordPlacement:
+    """Represents a word placed in the crossword puzzle."""
+    word: str
+    row: int
+    col: int
+    direction: Direction
+    clue: str = ""
+    number: int = 0
+    
+    def get_end_position(self) -> Tuple[int, int]:
+        """Get the ending position of this word."""
+        if self.direction == Direction.ACROSS:
+            return (self.row, self.col + len(self.word) - 1)
+        else:
+            return (self.row + len(self.word) - 1, self.col)
+    
+    def get_positions(self) -> List[Tuple[int, int]]:
+        """Get all grid positions this word occupies."""
+        positions = []
+        for i in range(len(self.word)):
+            if self.direction == Direction.ACROSS:
+                positions.append((self.row, self.col + i))
+            else:
+                positions.append((self.row + i, self.col))
+        return positions
+    
+    def get_letter_at_position(self, row: int, col: int) -> str:
+        """Get the letter at a specific position if this word occupies it."""
+        positions = self.get_positions()
+        if (row, col) not in positions:
+            return ""
+        
+        if self.direction == Direction.ACROSS:
+            letter_index = col - self.col
+        else:
+            letter_index = row - self.row
+            
+        return self.word[letter_index] if 0 <= letter_index < len(self.word) else ""
+
+class CrosswordGrid:
+    """Core grid representation for crossword puzzles."""
+    
+    def __init__(self, size: int = 15):
+        self.size = size
+        self.grid = np.full((size, size), '', dtype='<U1')
+        self.blocked_cells: Set[Tuple[int, int]] = set()
+        self.given_cells: Set[Tuple[int, int]] = set()
+        self.user_cells: Set[Tuple[int, int]] = set()
+    
+    def is_valid_position(self, row: int, col: int) -> bool:
+        """Check if position is within grid bounds."""
+        return 0 <= row < self.size and 0 <= col < self.size
+    
+    def is_blocked(self, row: int, col: int) -> bool:
+        """Check if a cell is blocked (black square)."""
+        return (row, col) in self.blocked_cells
+    
+    def set_blocked(self, row: int, col: int, blocked: bool = True):
+        """Set a cell as blocked or unblocked."""
+        if not self.is_valid_position(row, col):
+            raise ValueError(f"Invalid position: ({row}, {col})")
+        
+        if blocked:
+            self.blocked_cells.add((row, col))
+            self.grid[row, col] = '#'
+            self.given_cells.discard((row, col))
+            self.user_cells.discard((row, col))
+        else:
+            self.blocked_cells.discard((row, col))
+            self.grid[row, col] = ''
+    
+    def get_letter(self, row: int, col: int) -> str:
+        """Get letter at position."""
+        if not self.is_valid_position(row, col):
+            return ''
+        return self.grid[row, col]
+    
+    def set_letter(self, row: int, col: int, letter: str, is_given: bool = False):
+        """Set letter at position."""
+        if not self.is_valid_position(row, col):
+            raise ValueError(f"Invalid position: ({row}, {col})")
+        if self.is_blocked(row, col):
+            raise ValueError(f"Cannot place letter in blocked cell: ({row}, {col})")
+        
+        self.grid[row, col] = letter.upper() if letter else ''
+        
+        pos = (row, col)
+        if is_given:
+            self.given_cells.add(pos)
+            self.user_cells.discard(pos)
+        else:
+            self.user_cells.add(pos)
+            self.given_cells.discard(pos)
+    
+    def is_empty(self, row: int, col: int) -> bool:
+        """Check if a cell is empty (not blocked, no letter)."""
+        if not self.is_valid_position(row, col):
+            return False
+        return not self.is_blocked(row, col) and self.get_letter(row, col) == ''
+    
+    def get_filled_cells(self) -> Set[Tuple[int, int]]:
+        """Get all filled cells in the grid."""
+        filled_cells = set()
+        for row in range(self.size):
+            for col in range(self.size):
+                if self.get_letter(row, col) and not self.is_blocked(row, col):
+                    filled_cells.add((row, col))
+        return filled_cells
+    
+    def copy(self):
+        """Create a deep copy of the grid."""
+        new_grid = CrosswordGrid(self.size)
+        new_grid.grid = self.grid.copy()
+        new_grid.blocked_cells = self.blocked_cells.copy()
+        new_grid.given_cells = self.given_cells.copy()
+        new_grid.user_cells = self.user_cells.copy()
+        return new_grid
+    
+    def __str__(self):
+        """Pretty print the grid."""
+        lines = []
+        for row in self.grid:
+            line = ""
+            for cell in row:
+                if cell == '':
+                    line += '.'
+                elif cell == '#':
+                    line += '█'
+                else:
+                    line += cell
+                line += ' '
+            lines.append(line)
+        return "\n".join(lines)
+
+class MockWordDataManager:
+    """Mock word data manager with built-in word list."""
+    
+    def __init__(self):
+        # Expanded word list for better crossword generation
+        self.word_list = [
+            ("CAT", "Feline pet"), ("DOG", "Canine companion"), ("BIRD", "Flying animal"),
+            ("FISH", "Swimming creature"), ("TREE", "Woody plant"), ("HOUSE", "Dwelling place"),
+            ("WATER", "H2O"), ("LIGHT", "Illumination"), ("MUSIC", "Sound art"),
+            ("BOOK", "Reading material"), ("PHONE", "Communication device"), ("GARDEN", "Outdoor space"),
+            ("KITCHEN", "Cooking room"), ("BEDROOM", "Sleeping room"), ("WINDOW", "Glass opening"),
+            ("DOOR", "Entry way"), ("CHAIR", "Seating furniture"), ("TABLE", "Flat surface"),
+            ("FLOWER", "Blooming plant"), ("BREAD", "Baked food"), ("CHEESE", "Dairy product"),
+            ("APPLE", "Red fruit"), ("ORANGE", "Citrus fruit"), ("BANANA", "Yellow fruit"),
+            ("PIZZA", "Italian dish"), ("PASTA", "Italian noodles"), ("SALAD", "Green dish"),
+            ("COFFEE", "Morning drink"), ("TEA", "Hot beverage"), ("JUICE", "Fruit drink"),
+            ("MILK", "Dairy drink"), ("BUTTER", "Dairy spread"), ("SUGAR", "Sweet substance"),
+            ("SALT", "Seasoning"), ("PEPPER", "Spice"), ("ONION", "Vegetable"),
+            ("GARLIC", "Aromatic bulb"), ("TOMATO", "Red vegetable"), ("CARROT", "Orange vegetable"),
+            ("POTATO", "Starchy tuber"), ("LETTUCE", "Leafy green"), ("SPINACH", "Dark green"),
+            ("CHICKEN", "Poultry"), ("BEEF", "Red meat"), ("PORK", "Pig meat"),
+            ("LOBSTER", "Crustacean"), ("SHRIMP", "Shellfish"), ("SALMON", "Pink fish"),
+            ("TUNA", "Ocean fish"), ("RICE", "Grain staple"), ("CORN", "Yellow grain"),
+            ("WHEAT", "Bread grain"), ("OATS", "Breakfast grain"), ("BEANS", "Protein legume"),
+            ("PEAS", "Green legume"), ("NUTS", "Tree seeds"), ("HONEY", "Bee product"),
+            ("EGGS", "Protein source"), ("WINE", "Grape beverage"), ("BEER", "Hop beverage"),
+            ("SODA", "Fizzy drink"), ("CAKE", "Sweet dessert"), ("PIE", "Baked dessert"),
+            ("ICE", "Frozen water"), ("SNOW", "Frozen precipitation"), ("RAIN", "Water drops"),
+            ("SUN", "Solar star"), ("MOON", "Earth satellite"), ("STAR", "Celestial body"),
+            ("SKY", "Atmosphere"), ("CLOUD", "Water vapor"), ("WIND", "Moving air"),
+            ("FIRE", "Combustion"), ("EARTH", "Our planet"), ("OCEAN", "Large water body"),
+            ("LAKE", "Inland water"), ("RIVER", "Flowing water"), ("MOUNTAIN", "High elevation"),
+            ("HILL", "Small mountain"), ("VALLEY", "Low area"), ("FOREST", "Many trees"),
+            ("FIELD", "Open area"), ("ROAD", "Path for vehicles"), ("BRIDGE", "Crossing structure"),
+            ("BUILDING", "Structure"), ("SCHOOL", "Learning place"), ("HOSPITAL", "Medical facility"),
+            ("STORE", "Shopping place"), ("MARKET", "Trading place"), ("PARK", "Recreation area"),
+            ("BEACH", "Sandy shore"), ("ISLAND", "Land surrounded by water"), ("DESERT", "Dry region"),
+            ("JUNGLE", "Dense forest"), ("CITY", "Urban area"), ("TOWN", "Small city"),
+            ("VILLAGE", "Small settlement"), ("COUNTRY", "Nation"), ("WORLD", "Planet Earth"),
+            ("UNIVERSE", "All existence"), ("SPACE", "Outer void"), ("TIME", "Duration"),
+            ("LIFE", "Living existence"), ("DEATH", "End of life"), ("BIRTH", "Beginning of life"),
+            ("CHILD", "Young person"), ("ADULT", "Grown person"), ("FAMILY", "Related group"),
+            ("FRIEND", "Close companion"), ("LOVE", "Deep affection"), ("PEACE", "Tranquility"),
+            ("WAR", "Armed conflict"), ("HEALTH", "Wellness"), ("MEDICINE", "Healing substance"),
+            ("DOCTOR", "Medical professional"), ("NURSE", "Medical caregiver"), ("TEACHER", "Educator"),
+            ("STUDENT", "Learner"), ("WORKER", "Employee"), ("ARTIST", "Creative person"),
+            ("WRITER", "Author"), ("MUSICIAN", "Sound artist"), ("DANCER", "Movement artist"),
+            ("ACTOR", "Performer"), ("SINGER", "Vocal artist"), ("PAINTER", "Visual artist"),
+            ("COMPUTER", "Electronic device"), ("INTERNET", "Global network"), ("EMAIL", "Electronic mail"),
+            ("WEBSITE", "Online page"), ("SOCIAL", "Community related"), ("MEDIA", "Communication channel"),
+            ("NEWS", "Current events"), ("RADIO", "Audio broadcast"), ("TELEVISION", "Video broadcast"),
+            ("MOVIE", "Film"), ("SHOW", "Performance"), ("GAME", "Entertainment"), ("SPORT", "Athletic activity"),
+            ("TEAM", "Group"), ("PLAYER", "Participant"), ("WINNER", "Victor"), ("CHAMPION", "Top winner"),
+            ("TROPHY", "Award"), ("MEDAL", "Honor"), ("PRIZE", "Reward"), ("GIFT", "Present"),
+            ("PARTY", "Celebration"), ("BIRTHDAY", "Annual celebration"), ("HOLIDAY", "Special day"),
+            ("VACATION", "Time off"), ("TRAVEL", "Journey"), ("TRIP", "Short journey"),
+            ("ADVENTURE", "Exciting experience"), ("DISCOVERY", "Finding"), ("INVENTION", "Creation"),
+            ("SCIENCE", "Knowledge pursuit"), ("RESEARCH", "Investigation"), ("EXPERIMENT", "Test"),
+            ("LABORATORY", "Research facility"), ("LIBRARY", "Book collection"), ("MUSEUM", "Exhibit hall"),
+            ("THEATER", "Performance venue"), ("CONCERT", "Musical event"), ("FESTIVAL", "Celebration"),
+            ("MARKET", "Trading place"), ("SHOP", "Store"), ("MALL", "Shopping center"),
+            ("RESTAURANT", "Dining place"), ("CAFE", "Coffee shop"), ("BAR", "Drinking establishment"),
+            ("HOTEL", "Lodging"), ("MOTEL", "Roadside lodging"), ("RESORT", "Vacation spot"),
+            ("CABIN", "Small house"), ("TENT", "Portable shelter"), ("CAMP", "Temporary stay"),
+            ("HIKE", "Nature walk"), ("CLIMB", "Ascent"), ("SWIM", "Water activity"),
+            ("RUN", "Fast movement"), ("WALK", "Slow movement"), ("JUMP", "Leap"),
+            ("DANCE", "Rhythmic movement"), ("SING", "Vocal music"), ("PLAY", "Recreation"),
+            ("WORK", "Labor"), ("STUDY", "Learning"), ("READ", "Text consumption"),
+            ("WRITE", "Text creation"), ("DRAW", "Visual creation"), ("PAINT", "Color application"),
+            ("COOK", "Food preparation"), ("BAKE", "Oven cooking"), ("GROW", "Cultivation"),
+            ("PLANT", "Vegetation"), ("HARVEST", "Crop gathering"), ("FARM", "Agricultural land"),
+            ("RANCH", "Livestock farm"), ("STABLE", "Horse shelter"), ("BARN", "Farm building"),
+            ("FENCE", "Boundary"), ("GATE", "Entry point"), ("PATH", "Walkway"),
+            ("TRAIL", "Nature path"), ("STREET", "Urban road"), ("AVENUE", "Wide street"),
+            ("HIGHWAY", "Major road"), ("TUNNEL", "Underground passage"), ("SUBWAY", "Underground train")
+        ]
+        
+        self.word_to_clue = {word: clue for word, clue in self.word_list}
+        self._loaded = True
+    
+    def ensure_loaded(self):
+        pass
+    
+    def get_all_words(self):
+        return [word for word, _ in self.word_list]
+    
+    def get_words_by_length(self, min_length=3, max_length=15):
+        return [word for word, _ in self.word_list 
+                if min_length <= len(word) <= max_length]
+    
+    def get_random_words(self, count=50, min_length=3, max_length=15):
+        available = self.get_words_by_length(min_length, max_length)
+        return random.sample(available, min(count, len(available)))
+    
+    def get_clue_for_word(self, word):
+        return self.word_to_clue.get(word.upper(), f"Clue for {word}")
+
+class CrosswordValidator:
+    """Utility class for validation operations."""
+    
+    @staticmethod
+    def can_place_word(grid: CrosswordGrid, word: str, row: int, col: int, 
+                      direction: Direction) -> bool:
+        """Check if a word can be placed at the given position."""
+        word = word.upper()
+        
+        # Check bounds
+        if direction == Direction.ACROSS:
+            if col + len(word) > grid.size:
+                return False
+        else:  # DOWN
+            if row + len(word) > grid.size:
+                return False
+        
+        # Check each position
+        for i, letter in enumerate(word):
+            if direction == Direction.ACROSS:
+                r, c = row, col + i
+            else:
+                r, c = row + i, col
+            
+            # Can't place in blocked cells
+            if grid.is_blocked(r, c):
+                return False
+            
+            # Check for conflicts with existing letters
+            existing = grid.get_letter(r, c)
+            if existing and existing != letter:
+                return False
+        
+        return True
+    
+    @staticmethod
+    def get_intersections(placement1: WordPlacement, placement2: WordPlacement) -> List[Tuple[int, int]]:
+        """Find intersection points between two word placements."""
+        positions1 = set(placement1.get_positions())
+        positions2 = set(placement2.get_positions())
+        return list(positions1.intersection(positions2))
+    
+    @staticmethod
+    def validate_intersections(grid: CrosswordGrid, placements: List[WordPlacement]) -> bool:
+        """Validate that all word intersections have matching letters."""
+        for i, p1 in enumerate(placements):
+            for p2 in placements[i+1:]:
+                intersections = CrosswordValidator.get_intersections(p1, p2)
+                for row, col in intersections:
+                    letter1_idx = None
+                    letter2_idx = None
+                    
+                    if p1.direction == Direction.ACROSS:
+                        letter1_idx = col - p1.col
+                    else:
+                        letter1_idx = row - p1.row
+                    
+                    if p2.direction == Direction.ACROSS:
+                        letter2_idx = col - p2.col
+                    else:
+                        letter2_idx = row - p2.row
+                    
+                    if (0 <= letter1_idx < len(p1.word) and 
+                        0 <= letter2_idx < len(p2.word)):
+                        if p1.word[letter1_idx] != p2.word[letter2_idx]:
+                            return False
+        return True
+    
+    @staticmethod
+    def validate_grid_connectivity(placements: List[WordPlacement]) -> bool:
+        """Validate that all words in the grid are connected."""
+        if len(placements) <= 1:
+            return True
+        
+        # Build adjacency graph of word intersections
+        connected_components = []
+        
+        for i, placement in enumerate(placements):
+            component_indices = []
+            for j, component in enumerate(connected_components):
+                for other_idx in component:
+                    if CrosswordValidator.get_intersections(placement, placements[other_idx]):
+                        component_indices.append(j)
+                        break
+            
+            if not component_indices:
+                connected_components.append({i})
+            else:
+                new_component = {i}
+                for idx in sorted(component_indices, reverse=True):
+                    new_component.update(connected_components.pop(idx))
+                connected_components.append(new_component)
+        
+        return len(connected_components) <= 1
+
+    @staticmethod
+    def count_word_intersections(placements: List[WordPlacement]) -> int:
+        """Count the total number of intersections between all word placements."""
+        intersection_count = 0
+        for i, p1 in enumerate(placements):
+            for p2 in placements[i+1:]:
+                intersections = CrosswordValidator.get_intersections(p1, p2)
+                intersection_count += len(intersections)
+        return intersection_count
+
+class CrosswordCreator:
+    """Handles crossword puzzle creation and generation."""
+    
+    def __init__(self, grid: CrosswordGrid, word_data_manager):
+        self.grid = grid
+        self.word_placements: List[WordPlacement] = []
+        self.word_data_manager = word_data_manager
+    
+    def place_word(self, word: str, row: int, col: int, direction: Direction, 
+                   clue: str = "") -> bool:
+        """Attempt to place a word on the grid."""
+        if not CrosswordValidator.can_place_word(self.grid, word, row, col, direction):
+            return False
+        
+        if not clue and self.word_data_manager:
+            clue = self.word_data_manager.get_clue_for_word(word) or ""
+        
+        placement = WordPlacement(word.upper(), row, col, direction, clue)
+        
+        test_placements = self.word_placements + [placement]
+        if not CrosswordValidator.validate_intersections(self.grid, test_placements):
+            return False
+        
+        # Place the word
+        for i, letter in enumerate(word.upper()):
+            if direction == Direction.ACROSS:
+                self.grid.set_letter(row, col + i, letter, is_given=True)
+            else:
+                self.grid.set_letter(row + i, col, letter, is_given=True)
+        
+        self.word_placements.append(placement)
+        return True
+    
+    def remove_word(self, placement: WordPlacement) -> bool:
+        """Remove a word from the grid."""
+        if placement not in self.word_placements:
+            return False
+        
+        positions_to_clear = set(placement.get_positions())
+        
+        for other_placement in self.word_placements:
+            if other_placement != placement:
+                positions_to_clear -= set(other_placement.get_positions())
+        
+        for row, col in positions_to_clear:
+            self.grid.set_letter(row, col, '')
+            self.grid.given_cells.discard((row, col))
+        
+        self.word_placements.remove(placement)
+        return True
+    
+    def get_puzzle_statistics(self) -> dict:
+        """Get statistics about the current puzzle."""
+        filled_cells = len(self.grid.get_filled_cells())
+        total_cells = self.grid.size * self.grid.size
+        blocked_cells = len(self.grid.blocked_cells)
+        
+        return {
+            'word_count': len(self.word_placements),
+            'filled_cells': filled_cells,
+            'total_cells': total_cells,
+            'blocked_cells': blocked_cells,
+            'fill_percentage': (filled_cells / (total_cells - blocked_cells) * 100) if total_cells > blocked_cells else 0,
+            'intersection_count': CrosswordValidator.count_word_intersections(self.word_placements),
+            'is_connected': CrosswordValidator.validate_grid_connectivity(self.word_placements)
+        }
+
+# Slot and solver classes
+@dataclass  
+class Slot(WordPlacement):
+    """Represents a slot for word placement with constraints."""
+    constraints: Dict[int, str] = field(default_factory=dict)
+    
+    def __init__(self, row: int, col: int, direction: Direction, length: int, constraints: Dict[int, str] = None):
+        placeholder_word = '?' * length
+        super().__init__(placeholder_word, row, col, direction)
+        self.constraints = constraints or {}
+        self.length = length
+    
+    def matches_word(self, word: str) -> bool:
+        """Check if a word matches this slot's constraints."""
+        if len(word) > self.length:
+            return False
+        
+        if self.constraints:
+            min_constraint_pos = min(self.constraints.keys())
+            if len(word) <= min_constraint_pos:
+                return False
+        
+        for pos, required_letter in self.constraints.items():
+            if pos < len(word):
+                if word[pos].upper() != str(required_letter).upper():
+                    return False
+        return True
+
+class FastWordIndex:
+    """Fast word index for constraint-based word lookup."""
+    
+    def __init__(self, word_data_manager, preferred_length: int = 6):
+        self.word_data_manager = word_data_manager
+        self.preferred_length = preferred_length
+        self.length_index: Dict[int, List[str]] = defaultdict(list)
+        self.position_letter_index: Dict[Tuple[int, str], Set[str]] = defaultdict(set)
+        self._build_indexes()
+    
+    def _build_indexes(self):
+        """Build all word indexes for fast lookup."""
+        all_words = self.word_data_manager.get_all_words()
+        
+        for word in all_words:
+            word_len = len(word)
+            self.length_index[word_len].append(word)
+            
+            word_upper = word.upper()
+            for pos, letter in enumerate(word_upper):
+                self.position_letter_index[(pos, letter)].add(word)
+    
+    def find_compatible_words(self, slot: Slot, max_results: int = 100) -> List[str]:
+        """Find words compatible with the given slot constraints."""
+        min_word_length = 3
+        
+        if not slot.constraints:
+            candidates = []
+            for length in range(min_word_length, slot.length + 1):
+                candidates.extend(self.length_index.get(length, []))
+            return candidates[:max_results]
+        
+        compatible_words = None
+        
+        for pos, required_letter in sorted(slot.constraints.items()):
+            words_with_letter = self.position_letter_index.get((pos, str(required_letter).upper()), set())
+            valid_length_words = {w for w in words_with_letter 
+                                if min_word_length <= len(w) <= slot.length and len(w) > pos}
+            
+            if compatible_words is None:
+                compatible_words = valid_length_words
+            else:
+                compatible_words = compatible_words.intersection(valid_length_words)
+            
+            if not compatible_words:
+                return []
+        
+        compatible = list(compatible_words) if compatible_words else []
+        compatible.sort(key=len, reverse=True)
+        return compatible[:max_results]
+
+def find_empty_slots(grid: CrosswordGrid, min_length: int = 3) -> List[Slot]:
+    """Find all slots in the grid that can accommodate new words."""
+    slots: List[Slot] = []
+    
+    # Find horizontal slots
+    for row in range(grid.size):
+        black_positions = []
+        for col in range(grid.size):
+            if grid.is_blocked(row, col):
+                black_positions.append(col)
+        
+        segment_starts = [0] + [pos + 1 for pos in black_positions]
+        segment_ends = black_positions + [grid.size]
+        
+        for start, end in zip(segment_starts, segment_ends):
+            segment_length = end - start
+            if segment_length < min_length:
+                continue
+            
+            constraints = {}
+            for pos in range(start, end):
+                letter = grid.get_letter(row, pos)
+                if letter:
+                    constraints[pos - start] = str(letter)
+            
+            slot = Slot(row, start, Direction.ACROSS, segment_length, constraints)
+            slots.append(slot)
+    
+    # Find vertical slots
+    for col in range(grid.size):
+        black_positions = []
+        for row in range(grid.size):
+            if grid.is_blocked(row, col):
+                black_positions.append(row)
+        
+        segment_starts = [0] + [pos + 1 for pos in black_positions]
+        segment_ends = black_positions + [grid.size]
+        
+        for start, end in zip(segment_starts, segment_ends):
+            segment_length = end - start
+            if segment_length < min_length:
+                continue
+            
+            constraints = {}
+            for pos in range(start, end):
+                letter = grid.get_letter(pos, col)
+                if letter:
+                    constraints[pos - start] = str(letter)
+            
+            slot = Slot(start, col, Direction.DOWN, segment_length, constraints)
+            slots.append(slot)
+    
+    return slots
+
+def find_intersecting_slots(grid: CrosswordGrid, existing_placements: List[WordPlacement], 
+                           min_length: int = 3) -> List[Slot]:
+    """Find slots that would create intersections with existing words."""
+    if not existing_placements:
+        return find_empty_slots(grid, min_length)
+    
+    all_slots = find_empty_slots(grid, min_length)
+    intersecting_slots = []
+    
+    existing_positions = set()
+    for placement in existing_placements:
+        existing_positions.update(placement.get_positions())
+    
+    for slot in all_slots:
+        slot_positions = set(slot.get_positions())
+        if slot_positions & existing_positions:
+            intersecting_slots.append(slot)
+    
+    return intersecting_slots
+
+# Simulated Annealing Classes
+class PerturbationType(Enum):
+    """Types of perturbation operations in simulated annealing."""
+    ADD_WORD = "add_word"
+    REMOVE_WORD = "remove_word"
+    SWAP_WORD = "swap_word"
+    RELOCATE_WORD = "relocate_word"
+
+class CoolingSchedule(Enum):
+    """Different cooling schedule strategies."""
+    LINEAR = "linear"
+    EXPONENTIAL = "exponential"
+    LOGARITHMIC = "logarithmic"
+    ADAPTIVE = "adaptive"
+
+@dataclass
+class SAState:
+    """Represents a state in simulated annealing optimization."""
+    word_placements: List[WordPlacement]
+    blocked_cells: Set[Tuple[int, int]]
+    fill_percentage: float
+    fitness_score: float
+    temperature: float
+    iteration: int
+    energy: float = 0.0
+    
+    def __post_init__(self):
+        self.energy = -self.fitness_score
+    
+    def copy(self):
+        """Create a deep copy of the state."""
+        return SAState(
+            word_placements=copy.deepcopy(self.word_placements),
+            blocked_cells=self.blocked_cells.copy(),
+            fill_percentage=self.fill_percentage,
+            fitness_score=self.fitness_score,
+            temperature=self.temperature,
+            iteration=self.iteration,
+            energy=self.energy
+        )
+
+class SAFitnessEvaluator:
+    """Fitness evaluator for simulated annealing crossword generation."""
+    
+    def __init__(self, preferred_length: int = 6):
+        self.preferred_length = preferred_length
+        self.weights = {
+            'connectivity': 50.0,
+            'intersections': 2.0,
+            'fill_efficiency': 1.0,
+            'word_count': 0.5,
+            'length_diversity': 0.3,
+            'compactness': 0.2,
+        }
+    
+    def evaluate_fitness(self, creator: CrosswordCreator) -> float:
+        """Calculate comprehensive fitness score for the crossword puzzle."""
+        stats = creator.get_puzzle_statistics()
+        
+        if stats['word_count'] > 1 and not stats['is_connected']:
+            return 0.0
+        
+        connectivity_score = self.weights['connectivity'] if stats['is_connected'] else 0.0
+        
+        intersection_count = stats['intersection_count']
+        word_count = max(1, stats['word_count'])
+        intersection_score = min(50.0, intersection_count * self.weights['intersections'])
+        
+        fill_score = stats['fill_percentage'] * self.weights['fill_efficiency']
+        
+        optimal_words = max(10, stats['total_cells'] // (self.preferred_length * 2))
+        word_count_score = min(20.0, (word_count / optimal_words) * 20.0) * self.weights['word_count']
+        
+        if word_count > 1:
+            word_lengths = [len(wp.word) for wp in creator.word_placements]
+            length_std = np.std(word_lengths) if len(word_lengths) > 1 else 0
+            diversity_score = min(10.0, length_std * 2) * self.weights['length_diversity']
+        else:
+            diversity_score = 0.0
+        
+        compactness_score = self._calculate_compactness(creator) * self.weights['compactness']
+        
+        total_fitness = (
+            connectivity_score +
+            intersection_score +
+            fill_score +
+            word_count_score +
+            diversity_score +
+            compactness_score
+        )
+        
+        return total_fitness
+    
+    def _calculate_compactness(self, creator: CrosswordCreator) -> float:
+        """Calculate how compact the word layout is."""
+        if len(creator.word_placements) <= 1:
+            return 5.0
+        
+        occupied_positions = set()
+        for wp in creator.word_placements:
+            occupied_positions.update(wp.get_positions())
+        
+        if not occupied_positions:
+            return 0.0
+        
+        rows = [pos[0] for pos in occupied_positions]
+        cols = [pos[1] for pos in occupied_positions]
+        
+        min_row, max_row = min(rows), max(rows)
+        min_col, max_col = min(cols), max(cols)
+        
+        bbox_area = (max_row - min_row + 1) * (max_col - min_col + 1)
+        occupied_count = len(occupied_positions)
+        
+        compactness = occupied_count / bbox_area if bbox_area > 0 else 0
+        return compactness * 10.0
+
+class SimulatedAnnealingSolver:
+    """Main simulated annealing solver for crossword generation."""
+    
+    def __init__(self, word_data_manager, preferred_length: int = 6):
+        self.word_data_manager = word_data_manager
+        self.preferred_length = preferred_length
+        self.word_index = FastWordIndex(word_data_manager, preferred_length)
+        self.fitness_evaluator = SAFitnessEvaluator(preferred_length)
+        
+        self.initial_temperature = 100.0
+        self.final_temperature = 0.01
+        self.cooling_schedule = CoolingSchedule.EXPONENTIAL
+        self.cooling_rate = 0.995
+        
+        self.perturbation_weights = {
+            PerturbationType.ADD_WORD: 0.5,
+            PerturbationType.REMOVE_WORD: 0.2,
+            PerturbationType.SWAP_WORD: 0.2,
+            PerturbationType.RELOCATE_WORD: 0.1
+        }
+        
+        self.current_state: Optional[SAState] = None
+        self.best_state: Optional[SAState] = None
+        self.accepted_moves = 0
+        self.rejected_moves = 0
+    
+    def solve(self, creator: CrosswordCreator, max_iterations: int = 5000, 
+              target_fill: float = 70.0, random_seed: Optional[int] = None) -> bool:
+        """Generate crossword using simulated annealing optimization."""
+        if random_seed is not None:
+            random.seed(random_seed)
+        
+        initial_fitness = self.fitness_evaluator.evaluate_fitness(creator)
+        initial_fill = self._calculate_fill_percentage(creator)
+        
+        self.current_state = SAState(
+            word_placements=creator.word_placements.copy(),
+            blocked_cells=creator.grid.blocked_cells.copy(),
+            fill_percentage=initial_fill,
+            fitness_score=initial_fitness,
+            temperature=self.initial_temperature,
+            iteration=0
+        )
+        
+        self.best_state = self.current_state.copy()
+        self.accepted_moves = 0
+        self.rejected_moves = 0
+        used_words = {wp.word.upper() for wp in creator.word_placements}
+        
+        print(f"Starting Simulated Annealing solver with {max_iterations} iterations")
+        print(f"Target Fill: {target_fill}%")
+        print("")
+        
+        for iteration in range(max_iterations):
+            temperature = self._update_temperature(iteration, max_iterations)
+            self.current_state.temperature = temperature
+            self.current_state.iteration = iteration
+            
+            if iteration % 500 == 0 and iteration > 0:
+                acceptance_rate = self.accepted_moves / (self.accepted_moves + self.rejected_moves) * 100
+                print(f"Iteration {iteration}: temp={temperature:.3f}, "
+                      f"fill={self.current_state.fill_percentage:.1f}%, "
+                      f"fitness={self.current_state.fitness_score:.1f}, "
+                      f"words={len(self.current_state.word_placements)}, "
+                      f"acceptance={acceptance_rate:.1f}%")
+            
+            if self.current_state.fill_percentage >= target_fill:
+                print(f"[SUCCESS] Target achieved! Fill: {self.current_state.fill_percentage:.1f}% "
+                      f"in {iteration} iterations")
+                break
+            
+            if temperature < self.final_temperature:
+                print(f"[TERMINATION] Final temperature reached at iteration {iteration}")
+                break
+            
+            neighbor_creator = self._create_neighbor_state(creator, used_words)
+            if neighbor_creator is None:
+                continue
+            
+            neighbor_fitness = self.fitness_evaluator.evaluate_fitness(neighbor_creator)
+            neighbor_fill = self._calculate_fill_percentage(neighbor_creator)
+            
+            neighbor_state = SAState(
+                word_placements=neighbor_creator.word_placements.copy(),
+                blocked_cells=neighbor_creator.grid.blocked_cells.copy(),
+                fill_percentage=neighbor_fill,
+                fitness_score=neighbor_fitness,
+                temperature=temperature,
+                iteration=iteration
+            )
+            
+            if self._accept_move(self.current_state, neighbor_state):
+                self._apply_state_to_creator(neighbor_state, creator)
+                self.current_state = neighbor_state
+                self.accepted_moves += 1
+                
+                used_words.clear()
+                used_words.update(wp.word.upper() for wp in creator.word_placements)
+                
+                if neighbor_fitness > self.best_state.fitness_score:
+                    self.best_state = neighbor_state.copy()
+                    print(f"New best state at iteration {iteration}: "
+                          f"fitness={neighbor_fitness:.1f}, fill={neighbor_fill:.1f}%")
+            else:
+                self.rejected_moves += 1
+        
+        if self.best_state.fitness_score > self.current_state.fitness_score:
+            self._apply_state_to_creator(self.best_state, creator)
+            self.current_state = self.best_state
+        
+        return True
+    
+    def _update_temperature(self, iteration: int, max_iterations: int) -> float:
+        """Update temperature according to cooling schedule."""
+        if self.cooling_schedule == CoolingSchedule.LINEAR:
+            return self.initial_temperature * (1 - iteration / max_iterations)
+        elif self.cooling_schedule == CoolingSchedule.EXPONENTIAL:
+            return self.initial_temperature * (self.cooling_rate ** iteration)
+        elif self.cooling_schedule == CoolingSchedule.LOGARITHMIC:
+            return self.initial_temperature / (1 + math.log(1 + iteration))
+        else:
+            return self.initial_temperature * (self.cooling_rate ** iteration)
+    
+    def _create_neighbor_state(self, creator: CrosswordCreator, used_words: Set[str]) -> Optional[CrosswordCreator]:
+        """Create a neighbor state by applying a random perturbation."""
+        neighbor_creator = self._copy_creator(creator)
+        perturbation_type = self._choose_perturbation_type(len(creator.word_placements))
+        
+        if perturbation_type == PerturbationType.ADD_WORD:
+            return self._add_word_perturbation(neighbor_creator, used_words)
+        elif perturbation_type == PerturbationType.REMOVE_WORD:
+            return self._remove_word_perturbation(neighbor_creator, used_words)
+        elif perturbation_type == PerturbationType.SWAP_WORD:
+            return self._swap_word_perturbation(neighbor_creator, used_words)
+        elif perturbation_type == PerturbationType.RELOCATE_WORD:
+            return self._relocate_word_perturbation(neighbor_creator, used_words)
+        
+        return None
+    
+    def _choose_perturbation_type(self, word_count: int) -> PerturbationType:
+        """Choose perturbation type based on current state and weights."""
+        adjusted_weights = self.perturbation_weights.copy()
+        
+        if word_count == 0:
+            return PerturbationType.ADD_WORD
+        elif word_count == 1:
+            adjusted_weights[PerturbationType.ADD_WORD] = 0.8
+            adjusted_weights[PerturbationType.REMOVE_WORD] = 0.1
+            adjusted_weights[PerturbationType.SWAP_WORD] = 0.05
+            adjusted_weights[PerturbationType.RELOCATE_WORD] = 0.05
+        elif word_count < 5:
+            adjusted_weights[PerturbationType.ADD_WORD] = 0.6
+            adjusted_weights[PerturbationType.REMOVE_WORD] = 0.15
+            adjusted_weights[PerturbationType.SWAP_WORD] = 0.15
+            adjusted_weights[PerturbationType.RELOCATE_WORD] = 0.1
+        
+        types = list(adjusted_weights.keys())
+        weights = list(adjusted_weights.values())
+        return random.choices(types, weights=weights)[0]
+    
+    def _add_word_perturbation(self, creator: CrosswordCreator, used_words: Set[str]) -> Optional[CrosswordCreator]:
+        """Add a new word to the crossword."""
+        if len(creator.word_placements) == 0:
+            empty_slots = find_empty_slots(creator.grid, min_length=3)
+        else:
+            empty_slots = find_intersecting_slots(creator.grid, creator.word_placements, min_length=3)
+        
+        if not empty_slots:
+            return None
+        
+        random.shuffle(empty_slots)
+        for slot in empty_slots[:5]:
+            compatible_words = self.word_index.find_compatible_words(slot, max_results=50)
+            available_words = [word for word in compatible_words if word.upper() not in used_words]
+            
+            if available_words:
+                word = random.choice(available_words[:10])
+                success = creator.place_word(word.upper(), slot.row, slot.col, slot.direction)
+                if success:
+                    return creator
+        
+        return None
+    
+    def _remove_word_perturbation(self, creator: CrosswordCreator, used_words: Set[str]) -> Optional[CrosswordCreator]:
+        """Remove a word from the crossword."""
+        if len(creator.word_placements) <= 1:
+            return None
+        
+        word_to_remove = random.choice(creator.word_placements)
+        success = creator.remove_word(word_to_remove)
+        if success:
+            used_words.discard(word_to_remove.word.upper())
+            return creator
+        
+        return None
+    
+    def _swap_word_perturbation(self, creator: CrosswordCreator, used_words: Set[str]) -> Optional[CrosswordCreator]:
+        """Swap a word with a different word in the same position."""
+        if not creator.word_placements:
+            return None
+        
+        word_to_swap = random.choice(creator.word_placements)
+        slot = Slot(word_to_swap.row, word_to_swap.col, word_to_swap.direction, len(word_to_swap.word))
+        
+        # Find constraints from intersecting words
+        for other_wp in creator.word_placements:
+            if other_wp != word_to_swap:
+                intersections = CrosswordValidator.get_intersections(word_to_swap, other_wp)
+                for row, col in intersections:
+                    if word_to_swap.direction == Direction.ACROSS:
+                        pos_in_word = col - word_to_swap.col
+                    else:
+                        pos_in_word = row - word_to_swap.row
+                    
+                    if 0 <= pos_in_word < len(word_to_swap.word):
+                        intersection_letter = other_wp.get_letter_at_position(row, col)
+                        if intersection_letter:
+                            slot.constraints[pos_in_word] = intersection_letter
+        
+        compatible_words = self.word_index.find_compatible_words(slot, max_results=50)
+        available_words = [word for word in compatible_words 
+                          if word.upper() not in used_words and word.upper() != word_to_swap.word.upper()]
+        
+        if available_words:
+            creator.remove_word(word_to_swap)
+            used_words.discard(word_to_swap.word.upper())
+            
+            new_word = random.choice(available_words[:10])
+            success = creator.place_word(new_word.upper(), slot.row, slot.col, slot.direction)
+            
+            if success:
+                return creator
+            else:
+                creator.place_word(word_to_swap.word, word_to_swap.row, word_to_swap.col, 
+                                 word_to_swap.direction, word_to_swap.clue)
+                used_words.add(word_to_swap.word.upper())
+        
+        return None
+    
+    def _relocate_word_perturbation(self, creator: CrosswordCreator, used_words: Set[str]) -> Optional[CrosswordCreator]:
+        """Relocate a word to a different position."""
+        if not creator.word_placements:
+            return None
+        
+        word_to_relocate = random.choice(creator.word_placements)
+        original_word = word_to_relocate.word
+        original_clue = word_to_relocate.clue
+        
+        creator.remove_word(word_to_relocate)
+        used_words.discard(word_to_relocate.word.upper())
+        
+        if len(creator.word_placements) == 0:
+            available_slots = find_empty_slots(creator.grid, min_length=len(original_word))
+        else:
+            available_slots = find_intersecting_slots(creator.grid, creator.word_placements, 
+                                                    min_length=len(original_word))
+        
+        suitable_slots = []
+        for slot in available_slots:
+            if slot.length >= len(original_word):
+                temp_slot = Slot(slot.row, slot.col, slot.direction, len(original_word), slot.constraints)
+                if temp_slot.matches_word(original_word):
+                    suitable_slots.append(temp_slot)
+        
+        if suitable_slots:
+            new_slot = random.choice(suitable_slots)
+            success = creator.place_word(original_word, new_slot.row, new_slot.col, 
+                                       new_slot.direction, original_clue)
+            if success:
+                return creator
+        
+        creator.place_word(original_word, word_to_relocate.row, word_to_relocate.col, 
+                         word_to_relocate.direction, original_clue)
+        used_words.add(original_word.upper())
+        
+        return None
+    
+    def _accept_move(self, current_state: SAState, neighbor_state: SAState) -> bool:
+        """Decide whether to accept a move using simulated annealing criteria."""
+        if neighbor_state.fitness_score > current_state.fitness_score:
+            return True
+        
+        if current_state.temperature <= 0:
+            return False
+        
+        delta_energy = neighbor_state.energy - current_state.energy
+        acceptance_probability = math.exp(-delta_energy / current_state.temperature)
+        
+        return random.random() < acceptance_probability
+    
+    def _calculate_fill_percentage(self, creator: CrosswordCreator) -> float:
+        """Calculate fill percentage."""
+        stats = creator.get_puzzle_statistics()
+        return stats['fill_percentage']
+    
+    def _copy_creator(self, creator: CrosswordCreator) -> CrosswordCreator:
+        """Create a deep copy of CrosswordCreator for perturbation."""
+        new_grid = creator.grid.copy()
+        new_creator = CrosswordCreator(new_grid, creator.word_data_manager)
+        new_creator.word_placements = copy.deepcopy(creator.word_placements)
+        return new_creator
+    
+    def _apply_state_to_creator(self, state: SAState, creator: CrosswordCreator):
+        """Apply a state to a CrosswordCreator instance."""
+        creator.grid = CrosswordGrid(creator.grid.size)
+        creator.word_placements.clear()
+        
+        for row, col in state.blocked_cells:
+            creator.grid.set_blocked(row, col, True)
+        
+        for placement in state.word_placements:
+            success = creator.place_word(placement.word, placement.row, placement.col, 
+                                       placement.direction, placement.clue)
+            if not success:
+                print(f"Warning: Failed to restore placement for '{placement.word}'")
+    
+    def get_statistics(self) -> Dict[str, any]:
+        """Get solver statistics."""
+        total_moves = self.accepted_moves + self.rejected_moves
+        acceptance_rate = self.accepted_moves / total_moves if total_moves > 0 else 0
+        
+        return {
+            'accepted_moves': self.accepted_moves,
+            'rejected_moves': self.rejected_moves,
+            'total_moves': total_moves,
+            'acceptance_rate': acceptance_rate,
+            'best_fitness': self.best_state.fitness_score if self.best_state else 0,
+            'current_fitness': self.current_state.fitness_score if self.current_state else 0,
+            'final_temperature': self.current_state.temperature if self.current_state else 0
+        }
+
+def run_demo():
+    """Run the crossword generation demo."""
+    print("="*60)
+    print("SIMULATED ANNEALING CROSSWORD GENERATOR DEMO")
+    print("="*60)
+    
+    # Initialize components
+    word_data_manager = MockWordDataManager()
+    grid = CrosswordGrid(11)  # 11x11 grid for demo
+    creator = CrosswordCreator(grid, word_data_manager)
+    
+    # Create and configure SA solver
+    sa_solver = SimulatedAnnealingSolver(word_data_manager, preferred_length=6)
+    sa_solver.initial_temperature = 50.0
+    sa_solver.cooling_rate = 0.99
+    
+    # Run the solver
+    print(f"Generating {grid.size}x{grid.size} crossword puzzle...")
+    print(f"Available words: {len(word_data_manager.get_all_words())}")
+    print()
+    
+    success = sa_solver.solve(
+        creator=creator,
+        max_iterations=3000,
+        target_fill=60.0,
+        random_seed=42
+    )
+    
+    # Display results
+    print("\n" + "="*60)
+    print("GENERATION COMPLETE!")
+    print("="*60)
+    
+    stats = creator.get_puzzle_statistics()
+    sa_stats = sa_solver.get_statistics()
+    
+    print(f"\nFinal Statistics:")
+    print(f"  Fill Percentage: {stats['fill_percentage']:.1f}%")
+    print(f"  Words Placed: {stats['word_count']}")
+    print(f"  Intersections: {stats['intersection_count']}")
+    print(f"  Connected: {stats['is_connected']}")
+    print(f"  Blocked Cells: {stats['blocked_cells']}")
+    
+    print(f"\nSA Solver Statistics:")
+    print(f"  Accepted Moves: {sa_stats['accepted_moves']}")
+    print(f"  Rejected Moves: {sa_stats['rejected_moves']}")
+    print(f"  Acceptance Rate: {sa_stats['acceptance_rate']:.1f}%")
+    print(f"  Final Fitness: {sa_stats['current_fitness']:.1f}")
+    print(f"  Best Fitness: {sa_stats['best_fitness']:.1f}")
+    print(f"  Final Temperature: {sa_stats['final_temperature']:.6f}")
+    
+    # Display the crossword
+    print(f"\nGenerated Crossword:")
+    print(creator.grid)
+    
+    # Show word list
+    print(f"\nWords in Puzzle ({len(creator.word_placements)} total):")
+    for i, wp in enumerate(creator.word_placements, 1):
+        direction = "Across" if wp.direction == Direction.ACROSS else "Down"
+        clue = wp.clue if wp.clue else f"Clue for {wp.word}"
+        print(f"  {i:2d}. {wp.word:10s} ({direction:6s}) at ({wp.row:2d},{wp.col:2d}) - {clue}")
+    
+    print(f"\nDemo completed!")
+    
+    return creator, sa_solver
+
+if __name__ == "__main__":
+    # Run the demo
+    creator, solver = run_demo()
+    
+    print("\n" + "="*60)
+    print("To run this demo:")
+    print("1. Save this code as 'sa_crossword_demo.py'")
+    print("2. Run: python sa_crossword_demo.py")
+    print("3. Modify parameters in run_demo() to experiment")
+    print("="*60)
