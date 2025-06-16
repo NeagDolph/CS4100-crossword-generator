@@ -571,7 +571,7 @@ class CSPSolver:
             def scoreSlot(slot: Slot) -> float:
                 available_words = slot_words[slot]
                 if available_words and len(available_words) > 0:
-                    score = self.heuristic.evaluate_slot(slot, available_words, creator.word_placements, creator.grid, self.preferred_length)
+                    score = self.heuristic.evaluate_slot(slot, available_words, creator.word_placements, self.preferred_length)
                     return score
                 return 0
             

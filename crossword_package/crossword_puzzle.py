@@ -10,14 +10,13 @@ from .crossword_grid import CrosswordGrid
 from .crossword_creator import CrosswordCreator
 from .crossword_player import CrosswordPlayer
 from .word_data import WordDataManager
-from .word_placement import WordPlacement, Direction
 
 class CrosswordPuzzle:
     """
     High-level orchestrator that manages the entire crossword puzzle lifecycle.
     Coordinates between creation and gameplay phases.
     """
-    
+
     def __init__(self, size: int = 15, word_data_manager: Optional[WordDataManager] = None, 
                  csv_file_path: str = None):
         """
