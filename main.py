@@ -4,7 +4,7 @@ def main():
     # Create a new puzzle instance (loads nytcrosswords.csv by default)
     puzzle = CrosswordPuzzle()
 
-    # Generate crossword automatically using CSP
+    # Generate crossword automatically using CSP-K
     success = puzzle.get_creator().generate_puzzle_with_csp()
 
     if success:
