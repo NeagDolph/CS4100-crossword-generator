@@ -17,7 +17,8 @@ class CrosswordGrid:
                     while c < self.cols and self.grid[r][c] != "#":
                         c += 1
                     if c - start > 1:
-                        slots.append(WordPlacement("", r, start, Direction.ACROSS))
+                        slots.append(WordPlacement("", r, start, Direction.ACROSS, length=c - start))
+
                 else:
                     c += 1
 
@@ -30,7 +31,8 @@ class CrosswordGrid:
                     while r < self.rows and self.grid[r][c] != "#":
                         r += 1
                     if r - start > 1:
-                        slots.append(WordPlacement("", start, c, Direction.DOWN))
+                        slots.append(WordPlacement("", start, c, Direction.DOWN, length=r - start))
+
                 else:
                     r += 1
 

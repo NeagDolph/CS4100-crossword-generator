@@ -1,13 +1,13 @@
 from collections import defaultdict
 from word_placement import WordPlacement, Direction
-from word_data import get_word_list_by_length
-from crossword_grid import CrosswordGrid
+from word_data_2 import get_word_list_by_length
+from crossword_grid_2 import CrosswordGrid
 
 class CrosswordCSP:
     def __init__(self, grid: CrosswordGrid, word_list):
         self.grid = grid
         self.variables = self.grid.get_word_slots()  # List of WordPlacement slots
-        self.domains = {var: get_word_list_by_length(word_list, var.length()) for var in self.variables}
+        self.domains = {var: get_word_list_by_length(word_list, var.length) for var in self.variables}
         self.overlaps = self._find_overlaps()
         self.neighbors = self._build_neighbors()
 

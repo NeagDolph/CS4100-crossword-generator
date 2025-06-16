@@ -20,7 +20,12 @@ def main():
     grid = CrosswordGrid(grid_data)
 
     # Load word list
-    word_list = load_words("nytcrosswords.csv")  # replace with simple list for now if needed
+    word_list = load_words("/Users/kelseynihezagirwe/Desktop/CS4100-crossword-generator/nytcrosswords.csv")
+    print(f"Loaded {len(word_list)} words")
+
+
+    for slot in grid.get_word_slots():
+        print(f"{slot.direction.name} slot at ({slot.row}, {slot.col}) length={slot.length}")
 
     # Solve the puzzle
     csp = CrosswordCSP(grid, word_list)
