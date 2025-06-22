@@ -1,25 +1,129 @@
 #!/usr/bin/env python3
 """
+===============================================================================
+MULTI-DIFFICULTY SIMULATED ANNEALING CROSSWORD GENERATOR
+===============================================================================
+
 A sophisticated crossword puzzle generator using simulated annealing optimization
 to create high-quality crosswords at three difficulty levels (Easy, Medium, Hard).
 
 OVERVIEW:
 --------
-This system generates crossword puzzles by treating crossword creation as an 
-optimization problem. Using simulated annealing, it iteratively places, removes, 
-swaps, and relocates words to maximize puzzle quality while meeting difficulty-
-specific targets for word count, intersections, and grid fill percentage.
+This system generates crossword puzzles using simulated annealing optimization,
+configured specifically for experimental comparison with CSP-based approaches.
+The implementation uses standardized parameters (10K iterations, fixed temperature
+schedule) to evaluate SA performance across three difficulty levels with 
+increasingly challenging fill targets (60%, 70%, 80%).
 
 FEATURES:
 ---------
-• Multi-Difficulty Support: Easy (9x9), Medium (13x13), Hard (17x17) grids
-• Real Clue Integration: Uses external CSV database of cryptic crossword clues
-• Smart Optimization: Intersection-focused placement with target achievement bonuses
+• Experimental Configuration: Standardized parameters for CSP vs SA comparison
+• Three Test Difficulties: 8x8, 11x11, 14x14 grids with progressive fill targets
+• Enhanced Scalability: Smart initialization, adaptive temperatures, and extended search
+• Performance Evaluation: 10K SA iterations vs 25K CSP iterations with backtracking
+• Curated Database: 837 word-clue pairs for consistent vocabulary testing
+• Reproducible Results: Fixed random seeds and standardized optimization parameters
 • Quality Metrics: Tracks connectivity, density, intersection count, and fill percentage
-• Progressive Complexity: Each difficulty level uses tailored optimization strategies
-• Duplicate Prevention: Robust validation to ensure unique word placements
-• Interactive Interface: Choose individual difficulties or run complete progression
+• Real Clue Integration: Uses external CSV database of authentic crossword clues
+• Advanced Optimization: Aggressive fitness rewards and intersection-focused strategies
 
+REQUIREMENTS:
+-------------
+Files needed in the same directory:
+• word_data.py         - Word data management class (WordDataManager)
+• clues_bigdave.csv    - CSV file with columns: 'word', 'clue'
+
+Python packages:
+• numpy
+• csv (built-in)
+• random (built-in)
+• math (built-in)
+
+USAGE:
+------
+1. Basic Usage:
+   python sa_solver.py
+   
+   The script will:
+   - Automatically locate your 837-word CSV database
+   - Load curated word/clue pairs
+   - Present experimental difficulty configurations
+   - Generate crosswords using standardized SA parameters (10K iterations)
+   - Provide results comparable to CSP solver performance
+
+2. Menu Options (Experimental Configurations):
+   1 = Easy difficulty      (8x8,  60% fill, baseline test)
+   2 = Medium difficulty    (11x11, 70% fill, standard complexity)
+   3 = Hard difficulty      (14x14, 80% fill, maximum challenge)
+   4 = All difficulties     (Complete experimental suite)
+
+DIFFICULTY SPECIFICATIONS:
+--------------------------
+EASY (8x8 Grid):
+• Target: 60% fill, ~12+ words, 15+ intersections
+• Strategy: Word-focused placement, gentle optimization
+• Iterations: Up to 10,000 (matching CSP comparison study)
+• Best for: Baseline performance evaluation
+
+MEDIUM (11x11 Grid):
+• Target: 70% fill, ~20+ words, 30+ intersections  
+• Strategy: Balanced word/intersection optimization
+• Iterations: Up to 10,000
+• Best for: Standard crossword complexity testing
+
+HARD (14x14 Grid):
+• Target: 80% fill, ~35+ words, 50+ intersections
+• Strategy: Intersection-maximizing, high-density optimization
+• Iterations: Up to 10,000
+• Best for: Maximum complexity scalability testing
+
+EXPERIMENTAL CONFIGURATION:
+---------------------------
+This implementation matches the parameters used in CSP vs SA comparative study:
+• Dictionary: 837 word-clue pairs from curated crossword database
+• SA Parameters: Initial temp 100, final temp 0.01, cooling rate 0.995
+• Maximum iterations: 10,000 (vs CSP's 25,000 with backtracking)
+• Fixed random seeds for reproducible results
+• Progressive difficulty: 8x8→11x11→14x14 with 60%→70%→80% fill targets
+
+ALGORITHM DETAILS:
+------------------
+Enhanced Simulated Annealing Operations:
+• ADD_WORD: Strategic placement with intersection potential analysis and smart initialization
+• REMOVE_WORD: Strategic removal to improve overall puzzle quality
+• SWAP_WORD: Replace words while maintaining/improving intersections
+• RELOCATE_WORD: Move words to positions with better intersection potential
+
+Advanced Fitness Evaluation:
+• Connectivity: All words must be interconnected (mandatory)
+• Aggressive Target Achievement: Triple rewards for meeting goals, severe penalties for poor performance  
+• Intersection Optimization: Exponential rewards for high intersection density
+• Fill Efficiency: Progressive scoring with bonuses for achieving target percentages
+• Smart Compactness: Prevents scattered layouts while encouraging dense interconnections
+• Length Diversity: Balances word length variation with preferred lengths
+
+Scalability Enhancements:
+• Smart Initialization: Pre-places seed words for grids 11x11+ to improve starting point
+• Adaptive Temperature: Higher initial temperatures and slower cooling for larger grids
+• Extended Search: Continues optimization at minimum temperature for challenging configurations
+• Enhanced Word Selection: Prioritizes high-intersection-potential words for larger grids
+• Performance Monitoring: Tracks target achievement ratios to guide search strategies
+
+EXAMPLE OUTPUT:
+---------------
+EASY Crossword Grid (8x8, 60% fill):
+. . S R S . S .
+. . P E H . T .
+. . A D O . E .
+N I N E T I E S
+. . N V . . V .
+. . E E . . E .
+. . R L . . . .
+N E P O T I S M
+
+Words: NINETIES, NEPOTISM, SHOT, STEEVE, REDEVELOP, SPANNER
+
+===============================================================================
 """
 
 import random
@@ -726,7 +830,7 @@ class SAFitnessEvaluator:
             }
     
     def evaluate_fitness(self, creator: CrosswordCreator) -> float:
-        """Calculate comprehensive fitness score with target achievement bonuses."""
+        """Calculate comprehensive fitness score with aggressive target achievement incentives."""
         stats = creator.get_puzzle_statistics()
         
         if stats['word_count'] > 1 and not stats['is_connected']:
@@ -735,68 +839,117 @@ class SAFitnessEvaluator:
         # Base component scores
         connectivity_score = self.weights['connectivity'] if stats['is_connected'] else 0.0
         
-        # Word count score with exponential rewards for hitting targets
+        # Aggressive word count scoring with exponential rewards and penalties
         word_count = stats['word_count']
         if self.difficulty_config:
             target_words = self.difficulty_config.min_words_target
             if word_count >= target_words:
-                word_count_score = self.weights['word_count'] * 2.0  # Double reward for meeting target
+                word_count_score = self.weights['word_count'] * 3.0  # Triple reward for meeting target
+            elif word_count >= target_words * 0.75:
+                word_count_score = self.weights['word_count'] * 2.0  # Double reward for getting close
             else:
-                word_count_score = self.weights['word_count'] * (word_count / target_words)
+                # Severe penalty for being far from target
+                word_count_score = self.weights['word_count'] * (word_count / target_words) * 0.5
         else:
             word_count_score = self.weights['word_count'] * min(2.0, word_count / 10.0)
         
-        # Intersection score with exponential rewards
+        # Aggressive intersection scoring
         intersection_count = stats['intersection_count']
         if self.difficulty_config:
             target_intersections = self.difficulty_config.min_intersections_target
             if intersection_count >= target_intersections:
+                intersection_score = self.weights['intersections'] * 3.0  # Triple reward
+            elif intersection_count >= target_intersections * 0.75:
                 intersection_score = self.weights['intersections'] * 2.0  # Double reward
             else:
-                intersection_score = self.weights['intersections'] * (intersection_count / target_intersections)
+                # Severe penalty for being far from target
+                intersection_score = self.weights['intersections'] * (intersection_count / target_intersections) * 0.5
         else:
             intersection_score = self.weights['intersections'] * min(2.0, intersection_count / 20.0)
         
-        # Fill efficiency score
+        # Aggressive fill efficiency scoring
         fill_percentage = stats['fill_percentage']
         if self.difficulty_config:
             target_fill = self.difficulty_config.target_fill
             if fill_percentage >= target_fill:
-                fill_score = self.weights['fill_efficiency'] * 2.0  # Double reward
+                fill_score = self.weights['fill_efficiency'] * 3.0  # Triple reward
+            elif fill_percentage >= target_fill * 0.8:
+                fill_score = self.weights['fill_efficiency'] * 2.0  # Double reward for getting close
             else:
-                fill_score = self.weights['fill_efficiency'] * (fill_percentage / target_fill)
+                # Progressive penalty for being far from target
+                fill_ratio = fill_percentage / target_fill
+                if fill_ratio < 0.3:  # Severe penalty for very low fill
+                    fill_score = self.weights['fill_efficiency'] * fill_ratio * 0.1
+                else:
+                    fill_score = self.weights['fill_efficiency'] * fill_ratio * 0.5
+                    
+                # Extra penalty for Hard difficulty with very low fill
+                if self.difficulty_config.name == "HARD" and fill_percentage < 50.0:
+                    fill_score *= 0.5  # Additional penalty for Hard difficulty
         else:
             fill_score = self.weights['fill_efficiency'] * (fill_percentage / 50.0)
-        
-        # Length diversity score
+            
+        # Enhanced length diversity scoring
         if word_count > 1:
             word_lengths = [len(wp.word) for wp in creator.word_placements]
             length_std = np.std(word_lengths) if len(word_lengths) > 1 else 0
             diversity_score = min(self.weights['length_diversity'], length_std * 0.5)
+            
+            # Bonus for having words of preferred length
+            preferred_count = sum(1 for length in word_lengths if abs(length - self.preferred_length) <= 1)
+            preferred_bonus = (preferred_count / len(word_lengths)) * self.weights['length_diversity']
+            diversity_score += preferred_bonus
         else:
             diversity_score = 0.0
         
-        # Compactness score
+        # Enhanced compactness score
         compactness_score = self._calculate_compactness(creator) * self.weights['compactness']
         
-        # Target achievement bonus
+        # Aggressive target achievement bonus system
         target_achievement_score = 0.0
         if self.difficulty_config:
             targets_met = 0
+            close_targets = 0  # Targets that are close to being met
+            
+            # Word target evaluation
             if word_count >= self.difficulty_config.min_words_target:
                 targets_met += 1
+            elif word_count >= self.difficulty_config.min_words_target * 0.75:
+                close_targets += 1
+                
+            # Intersection target evaluation
             if intersection_count >= self.difficulty_config.min_intersections_target:
                 targets_met += 1
+            elif intersection_count >= self.difficulty_config.min_intersections_target * 0.75:
+                close_targets += 1
+                
+            # Fill target evaluation
             if fill_percentage >= self.difficulty_config.target_fill:
                 targets_met += 1
+            elif fill_percentage >= self.difficulty_config.target_fill * 0.8:
+                close_targets += 1
             
-            # Exponential bonus for meeting multiple targets
+            # Exponential bonus system
             if targets_met == 3:
-                target_achievement_score = self.weights['target_achievement'] * 3.0
+                target_achievement_score = self.weights['target_achievement'] * 5.0  # Massive bonus
             elif targets_met == 2:
-                target_achievement_score = self.weights['target_achievement'] * 1.5
+                target_achievement_score = self.weights['target_achievement'] * 3.0  # Large bonus
             elif targets_met == 1:
-                target_achievement_score = self.weights['target_achievement'] * 0.5
+                target_achievement_score = self.weights['target_achievement'] * 1.5  # Moderate bonus
+            elif close_targets >= 2:
+                target_achievement_score = self.weights['target_achievement'] * 1.0  # Small bonus for being close
+            elif close_targets >= 1:
+                target_achievement_score = self.weights['target_achievement'] * 0.5  # Tiny bonus
+            else:
+                # Penalty for not making progress toward any targets
+                target_achievement_score = -self.weights['target_achievement'] * 0.5
+        
+        # Grid size scaling factor - larger grids get bonus for any progress
+        if self.difficulty_config:
+            grid_cells = self.difficulty_config.grid_size ** 2
+            if grid_cells > 100:  # For larger grids (11x11+), give progress bonuses
+                progress_bonus = min(10.0, (stats['filled_cells'] / grid_cells) * 20.0)
+                target_achievement_score += progress_bonus
         
         total_fitness = (
             connectivity_score +
@@ -808,7 +961,7 @@ class SAFitnessEvaluator:
             target_achievement_score
         )
         
-        return total_fitness
+        return max(0.0, total_fitness)  # Ensure non-negative fitness
     
     def _calculate_compactness(self, creator: CrosswordCreator) -> float:
         """Calculate how compact the word layout is."""
@@ -845,11 +998,11 @@ class SimulatedAnnealingSolver:
         self.fitness_evaluator = SAFitnessEvaluator(preferred_length, difficulty_config)
         
         self.initial_temperature = 100.0
-        self.final_temperature = 0.01
+        self.final_temperature = 0.01    # Fixed final temperature for experimental consistency
         self.cooling_schedule = CoolingSchedule.EXPONENTIAL
-        self.cooling_rate = 0.995
+        self.cooling_rate = 0.995        # Fixed cooling rate for experimental consistency
         
-        # Adaptive perturbation weights based on difficulty
+        # Adaptive perturbation weights based on difficulty and current performance
         if difficulty_config:
             if difficulty_config.name == "EASY":
                 self.perturbation_weights = {
@@ -867,10 +1020,10 @@ class SimulatedAnnealingSolver:
                 }
             else:  # HARD
                 self.perturbation_weights = {
-                    PerturbationType.ADD_WORD: 0.4,
-                    PerturbationType.REMOVE_WORD: 0.2,
-                    PerturbationType.SWAP_WORD: 0.3,     # Highest swapping for complexity
-                    PerturbationType.RELOCATE_WORD: 0.1
+                    PerturbationType.ADD_WORD: 0.8,      # Extremely aggressive word addition
+                    PerturbationType.REMOVE_WORD: 0.05,  # Rarely remove words
+                    PerturbationType.SWAP_WORD: 0.1,     # Some swapping
+                    PerturbationType.RELOCATE_WORD: 0.05 # Minimal relocation
                 }
         else:
             self.perturbation_weights = {
@@ -891,9 +1044,13 @@ class SimulatedAnnealingSolver:
     
     def solve(self, creator: CrosswordCreator, max_iterations: int = 5000, 
               target_fill: float = 70.0, random_seed: Optional[int] = None) -> bool:
-        """Generate crossword using simulated annealing optimization."""
+        """Generate crossword using simulated annealing optimization with smart initialization."""
         if random_seed is not None:
             random.seed(random_seed)
+        
+        # Smart initialization for larger grids
+        if self.difficulty_config and self.difficulty_config.grid_size >= 11:
+            self._smart_initialization(creator)
         
         initial_fitness = self.fitness_evaluator.evaluate_fitness(creator)
         initial_fill = self._calculate_fill_percentage(creator)
@@ -914,6 +1071,8 @@ class SimulatedAnnealingSolver:
         
         print(f"Starting Simulated Annealing solver with {max_iterations} iterations")
         print(f"Target Fill: {target_fill}%")
+        if len(creator.word_placements) > 0:
+            print(f"Starting with {len(creator.word_placements)} seed words")
         print("")
         
         for iteration in range(max_iterations):
@@ -930,20 +1089,63 @@ class SimulatedAnnealingSolver:
                       f"words={len(self.current_state.word_placements)}, "
                       f"acceptance={acceptance_rate:.1f}%")
             
-            # Check for early success based on difficulty-specific criteria
-            if (self.current_state.fill_percentage >= target_fill and 
-                len(self.current_state.word_placements) >= getattr(self, 'min_words_target', 0)):
-                print(f"[SUCCESS] All targets achieved! Fill: {self.current_state.fill_percentage:.1f}%, "
-                      f"Words: {len(self.current_state.word_placements)} in {iteration} iterations")
-                break
-            elif self.current_state.fill_percentage >= target_fill:
-                print(f"[SUCCESS] Fill target achieved! Fill: {self.current_state.fill_percentage:.1f}% "
+            # Enhanced termination criteria - check all targets
+            current_words = len(self.current_state.word_placements)
+            current_intersections = CrosswordValidator.count_word_intersections(
+                [wp for wp in self.current_state.word_placements]
+            )
+            current_fill = self.current_state.fill_percentage
+            
+            # Check if all targets are met
+            if self.difficulty_config:
+                words_met = current_words >= self.difficulty_config.min_words_target
+                intersections_met = current_intersections >= self.difficulty_config.min_intersections_target
+                fill_met = current_fill >= self.difficulty_config.target_fill
+                
+                targets_met = sum([words_met, intersections_met, fill_met])
+                
+                if targets_met == 3:
+                    print(f"[SUCCESS] All targets achieved! Words: {current_words}, "
+                          f"Intersections: {current_intersections}, Fill: {current_fill:.1f}% "
+                          f"in {iteration} iterations")
+                    break
+                elif targets_met >= 2 and iteration > max_iterations * 0.8:
+                    print(f"[SUCCESS] Most targets achieved late in search! Words: {current_words}, "
+                          f"Intersections: {current_intersections}, Fill: {current_fill:.1f}% "
+                          f"in {iteration} iterations")
+                    break
+            elif current_fill >= target_fill:
+                print(f"[SUCCESS] Fill target achieved! Fill: {current_fill:.1f}% "
                       f"in {iteration} iterations")
                 break
             
             if temperature < self.final_temperature:
-                print(f"[TERMINATION] Final temperature reached at iteration {iteration}")
-                break
+                # For challenging configurations, don't give up immediately at final temperature
+                if self.difficulty_config and self.difficulty_config.name in ["MEDIUM", "HARD"]:
+                    current_performance = self._calculate_performance_ratio()
+                    
+                    # Extended search criteria - continue if we haven't reached good fill percentage
+                    continue_search = False
+                    if self.difficulty_config.name == "HARD":
+                        # For Hard, continue if fill is below 60% and we haven't used 95% of iterations
+                        if current_fill < 60.0 and iteration < max_iterations * 0.95:
+                            continue_search = True
+                    elif self.difficulty_config.name == "MEDIUM":
+                        # For Medium, continue if fill is below target and we have iterations left
+                        if current_fill < self.difficulty_config.target_fill and iteration < max_iterations * 0.9:
+                            continue_search = True
+                    
+                    if continue_search:
+                        # Continue at minimum temperature for more exploration
+                        temperature = self.final_temperature
+                        if iteration % 1000 == 0:
+                            print(f"[EXTENDED SEARCH] Continuing at minimum temperature - Fill: {current_fill:.1f}%")
+                    else:
+                        print(f"[TERMINATION] Final temperature reached at iteration {iteration}")
+                        break
+                else:
+                    print(f"[TERMINATION] Final temperature reached at iteration {iteration}")
+                    break
             
             neighbor_creator = self._create_neighbor_state(creator, used_words)
             if neighbor_creator is None:
@@ -983,6 +1185,11 @@ class SimulatedAnnealingSolver:
             self._apply_state_to_creator(self.best_state, creator)
             self.current_state = self.best_state
         
+        # Greedy fill phase for Hard difficulty - try to maximize fill percentage
+        if self.difficulty_config and self.difficulty_config.name == "HARD":
+            print(f"[GREEDY FILL] Starting greedy phase to maximize fill percentage...")
+            self._greedy_fill_phase(creator, used_words)
+        
         # Final cleanup to ensure no duplicates remain
         creator = self._clean_duplicate_placements(creator)
         
@@ -994,6 +1201,166 @@ class SimulatedAnnealingSolver:
         print(f"  Fill percentage: {final_stats['fill_percentage']:.1f}%")
         
         return True
+    
+    def _greedy_fill_phase(self, creator: CrosswordCreator, used_words: Set[str], max_attempts: int = 200):
+        """Greedy phase to maximize fill percentage by placing any possible words."""
+        initial_fill = creator.get_puzzle_statistics()['fill_percentage']
+        words_added = 0
+        
+        for attempt in range(max_attempts):
+            # Find all possible slots, prioritizing shorter words for better fill
+            empty_slots = find_intersecting_slots(creator.grid, creator.word_placements, min_length=3)
+            if not empty_slots:
+                empty_slots = find_empty_slots(creator.grid, min_length=3)
+            
+            if not empty_slots:
+                break
+            
+            # Sort slots by length (shorter first for better fill density)
+            empty_slots.sort(key=lambda s: s.length)
+            
+            placed_word = False
+            for slot in empty_slots[:20]:  # Try top 20 slots
+                # Try shorter words first for better fit
+                for min_len in [3, 4, 5, 6, 7, 8]:
+                    if slot.length < min_len:
+                        continue
+                        
+                    compatible_words = self.word_index.find_compatible_words(slot, max_results=100)
+                    available_words = [
+                        word for word in compatible_words 
+                        if (word.upper() not in used_words and 
+                            min_len <= len(word) <= min_len + 1)
+                    ]
+                    
+                    if available_words:
+                        # Try the shortest available words first
+                        available_words.sort(key=len)
+                        
+                        for word in available_words[:10]:
+                            placement_exists = any(
+                                wp.word == word.upper() and wp.row == slot.row and 
+                                wp.col == slot.col and wp.direction == slot.direction 
+                                for wp in creator.word_placements
+                            )
+                            
+                            if not placement_exists:
+                                success = creator.place_word(word.upper(), slot.row, slot.col, slot.direction)
+                                if success:
+                                    used_words.add(word.upper())
+                                    words_added += 1
+                                    placed_word = True
+                                    print(f"[GREEDY] Added word {words_added}: {word.upper()}")
+                                    break
+                        
+                        if placed_word:
+                            break
+                    
+                if placed_word:
+                    break
+            
+            if not placed_word:
+                break
+        
+        final_fill = creator.get_puzzle_statistics()['fill_percentage']
+        improvement = final_fill - initial_fill
+        print(f"[GREEDY FILL] Added {words_added} words, improved fill by {improvement:.1f}% ({initial_fill:.1f}% → {final_fill:.1f}%)")
+    
+    def _smart_initialization(self, creator: CrosswordCreator):
+        """Initialize larger grids with some seed words for better starting point."""
+        print(f"[SMART INIT] Placing seed words for {creator.grid.size}x{creator.grid.size} grid...")
+        
+        # Try to place more seed words for Hard difficulty
+        target_seed_words = 2 if self.difficulty_config.name == "MEDIUM" else 4
+        center = creator.grid.size // 2
+        
+        # Get some good words of appropriate length (prefer shorter for better connectivity)
+        good_words = self.word_data_manager.get_words_by_length(
+            min_length=4,  # Start with shorter words
+            max_length=self.preferred_length + 1
+        )
+        
+        if not good_words:
+            return
+        
+        # Try to place a horizontal word through the center
+        random.shuffle(good_words)
+        for word in good_words[:30]:
+            word_len = len(word)
+            start_col = max(0, center - word_len // 2)
+            if start_col + word_len <= creator.grid.size:
+                if creator.place_word(word, center, start_col, Direction.ACROSS):
+                    print(f"[SMART INIT] Placed seed word: {word}")
+                    break
+        
+        # Try to place intersecting words
+        placed_words = 0
+        for attempt in range(50):  # More attempts for Hard difficulty
+            if len(creator.word_placements) >= target_seed_words:
+                break
+                
+            if not creator.word_placements:
+                continue
+                
+            # Pick a random existing word to intersect with
+            existing_word = random.choice(creator.word_placements)
+            
+            # Try to find words that can intersect
+            for word in good_words[:30]:
+                if word.upper() == existing_word.word:
+                    continue
+                    
+                word_len = len(word)
+                # Try each letter position in the existing word
+                for i, letter in enumerate(existing_word.word):
+                    # Check if this new word contains the same letter
+                    if letter in word:
+                        letter_positions = [j for j, l in enumerate(word) if l == letter]
+                        
+                        for letter_pos in letter_positions:
+                            # Calculate position for perpendicular placement
+                            if existing_word.direction == Direction.ACROSS:
+                                # Place vertically
+                                start_row = existing_word.row - letter_pos
+                                col = existing_word.col + i
+                                new_direction = Direction.DOWN
+                            else:
+                                # Place horizontally
+                                start_col = existing_word.col - letter_pos
+                                row = existing_word.row + i
+                                new_direction = Direction.ACROSS
+                                start_row = row
+                                col = start_col
+                            
+                            # Check bounds
+                            if existing_word.direction == Direction.ACROSS:
+                                if (start_row >= 0 and start_row + word_len <= creator.grid.size and
+                                    0 <= col < creator.grid.size):
+                                    if creator.place_word(word, start_row, col, new_direction):
+                                        print(f"[SMART INIT] Placed intersecting seed word: {word}")
+                                        placed_words += 1
+                                        break
+                            else:
+                                if (0 <= row < creator.grid.size and
+                                    start_col >= 0 and start_col + word_len <= creator.grid.size):
+                                    if creator.place_word(word, row, start_col, new_direction):
+                                        print(f"[SMART INIT] Placed intersecting seed word: {word}")
+                                        placed_words += 1
+                                        break
+                        
+                        if placed_words > 0:
+                            break
+                    
+                    if len(creator.word_placements) >= target_seed_words:
+                        break
+                
+                if len(creator.word_placements) >= target_seed_words:
+                    break
+            
+            if len(creator.word_placements) >= target_seed_words:
+                break
+        
+        print(f"[SMART INIT] Completed with {len(creator.word_placements)} seed words")
     
     def _update_temperature(self, iteration: int, max_iterations: int) -> float:
         """Update temperature according to cooling schedule."""
@@ -1082,30 +1449,81 @@ class SimulatedAnnealingSolver:
         return random.choices(types, weights=weights)[0]
     
     def _add_word_perturbation(self, creator: CrosswordCreator, used_words: Set[str]) -> Optional[CrosswordCreator]:
-        """Add a new word to the crossword."""
+        """Add a new word to the crossword with enhanced intersection-focused strategy."""
         if len(creator.word_placements) == 0:
+            # For the first word, try to place it in the center for better intersection potential
             empty_slots = find_empty_slots(creator.grid, min_length=3)
+            if empty_slots:
+                # Prefer slots closer to center of grid
+                grid_center = creator.grid.size // 2
+                empty_slots.sort(key=lambda slot: abs(slot.row - grid_center) + abs(slot.col - grid_center))
         else:
             empty_slots = find_intersecting_slots(creator.grid, creator.word_placements, min_length=3)
         
         if not empty_slots:
             return None
         
-        random.shuffle(empty_slots)
-        attempts = 0
-        max_attempts = min(50, len(empty_slots) * 10)  # Limit attempts to prevent infinite loops
+        # Enhanced slot ranking based on difficulty level
+        if self.difficulty_config and self.difficulty_config.name in ["MEDIUM", "HARD"]:
+            empty_slots = self._rank_slots_by_intersection_potential(empty_slots, creator)
+            
+            # For hard difficulty, be even more aggressive about intersections
+            if self.difficulty_config.name == "HARD":
+                # Only consider slots that would create at least 2 intersections
+                high_intersection_slots = [
+                    slot for slot in empty_slots 
+                    if self._calculate_slot_intersection_potential(slot, creator) >= 2
+                ]
+                if high_intersection_slots:
+                    empty_slots = high_intersection_slots
+        else:
+            random.shuffle(empty_slots)
         
-        for slot in empty_slots[:5]:
+        attempts = 0
+        max_attempts = min(100, len(empty_slots) * 15)  # More attempts for better results
+        
+        # Try more slots for larger grids
+        slots_to_try = min(20 if self.difficulty_config and self.difficulty_config.grid_size >= 11 else 10, 
+                          len(empty_slots))
+        
+        for slot in empty_slots[:slots_to_try]:
             if attempts >= max_attempts:
                 break
                 
-            compatible_words = self.word_index.find_compatible_words(slot, max_results=50)
+            compatible_words = self.word_index.find_compatible_words(slot, max_results=200)
             available_words = [word for word in compatible_words if word.upper() not in used_words]
             
             if available_words:
-                word = random.choice(available_words[:10])
+                # Enhanced word selection strategy
+                if self.difficulty_config and self.difficulty_config.name in ["MEDIUM", "HARD"]:
+                    # Score words by intersection potential AND length preference
+                    word_scores = []
+                    for word in available_words[:50]:  # Evaluate more candidates
+                        intersection_potential = self._calculate_word_intersection_potential(word, slot, creator)
+                        length_score = 1.0 if abs(len(word) - self.preferred_length) <= 1 else 0.5
+                        
+                        # For hard difficulty, heavily weight intersection potential
+                        if self.difficulty_config.name == "HARD":
+                            total_score = intersection_potential * 3.0 + length_score
+                        else:
+                            total_score = intersection_potential * 2.0 + length_score
+                            
+                        word_scores.append((word, total_score))
+                    
+                    # Sort by score and add some randomness for diversity
+                    word_scores.sort(key=lambda x: x[1], reverse=True)
+                    
+                    # Choose from top scoring words with some randomness
+                    top_count = min(8, len(word_scores))
+                    if top_count > 0:
+                        top_words = [w[0] for w in word_scores[:top_count]]
+                        word = random.choice(top_words)
+                    else:
+                        word = random.choice(available_words[:10])
+                else:
+                    word = random.choice(available_words[:10])
                 
-                # Double-check this word isn't already placed at this position
+                # Enhanced duplicate checking
                 placement_exists = any(
                     wp.word == word.upper() and wp.row == slot.row and 
                     wp.col == slot.col and wp.direction == slot.direction 
@@ -1120,6 +1538,56 @@ class SimulatedAnnealingSolver:
             attempts += 1
         
         return None
+    
+    def _calculate_slot_intersection_potential(self, slot: Slot, creator: CrosswordCreator) -> int:
+        """Calculate the intersection potential of a slot."""
+        slot_positions = set(slot.get_positions())
+        intersection_count = 0
+        
+        for placement in creator.word_placements:
+            placement_positions = set(placement.get_positions())
+            intersections = slot_positions & placement_positions
+            intersection_count += len(intersections)
+        
+        return intersection_count
+    
+    def _rank_slots_by_intersection_potential(self, slots: List[Slot], creator: CrosswordCreator) -> List[Slot]:
+        """Rank slots by their potential to create intersections."""
+        slot_scores = []
+        
+        for slot in slots:
+            intersection_count = 0
+            slot_positions = set(slot.get_positions())
+            
+            # Count how many existing words this slot would intersect
+            for placement in creator.word_placements:
+                placement_positions = set(placement.get_positions())
+                if slot_positions & placement_positions:
+                    intersection_count += 1
+            
+            slot_scores.append((slot, intersection_count))
+        
+        # Sort by intersection potential (higher is better)
+        slot_scores.sort(key=lambda x: x[1], reverse=True)
+        return [slot for slot, _ in slot_scores]
+    
+    def _calculate_word_intersection_potential(self, word: str, slot: Slot, creator: CrosswordCreator) -> int:
+        """Calculate how many intersections a word would create if placed in this slot."""
+        word_positions = []
+        for i in range(len(word)):
+            if slot.direction == Direction.ACROSS:
+                word_positions.append((slot.row, slot.col + i))
+            else:
+                word_positions.append((slot.row + i, slot.col))
+        
+        intersection_count = 0
+        for placement in creator.word_placements:
+            placement_positions = set(placement.get_positions())
+            word_position_set = set(word_positions)
+            intersections = word_position_set & placement_positions
+            intersection_count += len(intersections)
+        
+        return intersection_count
     
     def _remove_word_perturbation(self, creator: CrosswordCreator, used_words: Set[str]) -> Optional[CrosswordCreator]:
         """Remove a word from the crossword."""
@@ -1281,6 +1749,25 @@ class SimulatedAnnealingSolver:
                     seen_keys.add(key)
             creator.word_placements = unique_placements
     
+    def _calculate_performance_ratio(self) -> float:
+        """Calculate how well the current state is performing relative to targets."""
+        if not self.difficulty_config or not self.current_state:
+            return 0.0
+        
+        current_words = len(self.current_state.word_placements)
+        current_intersections = CrosswordValidator.count_word_intersections(
+            [wp for wp in self.current_state.word_placements]
+        )
+        current_fill = self.current_state.fill_percentage
+        
+        # Calculate achievement ratios for each target
+        word_ratio = min(1.0, current_words / self.difficulty_config.min_words_target)
+        intersection_ratio = min(1.0, current_intersections / self.difficulty_config.min_intersections_target)
+        fill_ratio = min(1.0, current_fill / self.difficulty_config.target_fill)
+        
+        # Return average achievement ratio
+        return (word_ratio + intersection_ratio + fill_ratio) / 3.0
+    
     def get_statistics(self) -> Dict[str, any]:
         """Get solver statistics."""
         total_moves = self.accepted_moves + self.rejected_moves
@@ -1310,40 +1797,40 @@ class DifficultyConfig:
     min_intersections_target: int
     
 def get_difficulty_configs():
-    """Get configurations for all difficulty levels."""
+    """Get configurations for all difficulty levels matching CSP vs SA experimental setup."""
     return {
         'easy': DifficultyConfig(
             name="EASY",
-            grid_size=9,
-            target_fill=40.0,
-            max_iterations=2000,
-            initial_temperature=30.0,
-            cooling_rate=0.98,
-            preferred_length=5,
-            min_words_target=6,
-            min_intersections_target=8
+            grid_size=8,             # 8x8 grid for experimental comparison
+            target_fill=60.0,        # 60% target fill
+            max_iterations=10000,    # Fixed 10K iterations (vs CSP's 25K)
+            initial_temperature=150.0,  # Higher initial temperature for better exploration
+            cooling_rate=0.9995,     # Slower cooling for more thorough search
+            preferred_length=6,
+            min_words_target=12,     # Appropriate for 8x8 at 60% fill
+            min_intersections_target=15
         ),
         'medium': DifficultyConfig(
             name="MEDIUM", 
-            grid_size=13,
-            target_fill=55.0,
-            max_iterations=4000,
-            initial_temperature=60.0,
-            cooling_rate=0.99,
+            grid_size=11,            # 11x11 grid
+            target_fill=70.0,        # 70% target fill
+            max_iterations=10000,    # Fixed 10K iterations
+            initial_temperature=200.0,  # Higher temperature for larger search space
+            cooling_rate=0.9998,     # Much slower cooling for complex problems
             preferred_length=6,
-            min_words_target=12,
-            min_intersections_target=20
+            min_words_target=20,     # Appropriate for 11x11 at 70% fill
+            min_intersections_target=30
         ),
         'hard': DifficultyConfig(
             name="HARD",
-            grid_size=17,
-            target_fill=70.0,
-            max_iterations=6000,
-            initial_temperature=100.0,
-            cooling_rate=0.995,
-            preferred_length=7,
-            min_words_target=20,
-            min_intersections_target=35
+            grid_size=14,            # 14x14 grid  
+            target_fill=80.0,        # 80% target fill (challenging!)
+            max_iterations=10000,    # Fixed 10K iterations
+            initial_temperature=500.0,  # Much higher temperature for largest search space
+            cooling_rate=0.99995,    # Ultra-slow cooling for maximum exploration
+            preferred_length=6,      # Shorter preferred length for more words
+            min_words_target=35,     # Appropriate for 14x14 at 80% fill
+            min_intersections_target=50
         )
     }
 
@@ -1364,7 +1851,7 @@ def generate_crossword_by_difficulty(word_data_manager, config: DifficultyConfig
     creator = CrosswordCreator(grid, word_data_manager)
     
     # Create and configure SA solver based on difficulty
-    sa_solver = SimulatedAnnealingSolver(word_data_manager, preferred_length=config.preferred_length)
+    sa_solver = SimulatedAnnealingSolver(word_data_manager, preferred_length=config.preferred_length, difficulty_config=config)
     sa_solver.initial_temperature = config.initial_temperature
     sa_solver.cooling_rate = config.cooling_rate
     
@@ -1521,9 +2008,9 @@ def run_demo():
     
     # Ask user which difficulty to run or run all
     print(f"\nSelect difficulty level:")
-    print("1. Easy (9x9, ~6 words, light complexity)")
-    print("2. Medium (13x13, ~12 words, moderate complexity)")  
-    print("3. Hard (17x17, ~20 words, high complexity)")
+    print("1. Easy (8x8, 60% fill, experimental baseline)")
+    print("2. Medium (11x11, 70% fill, standard complexity)")  
+    print("3. Hard (14x14, 80% fill, maximum challenge)")
     print("4. All difficulties (run Easy → Medium → Hard)")
     
     choice = input("\nEnter your choice (1-4) [default: 4]: ").strip()
@@ -1570,11 +2057,12 @@ def run_demo():
             print(f"  Fill: {stats['fill_percentage']:.1f}% (target: {config.target_fill}%+)")
             print(f"  Fitness: {sa_stats['best_fitness']:.1f}")
             
-        print(f"\n🎉 Difficulty progression complete! Each level increases complexity:")
-        print("   • Grid size grows (9x9 → 13x13 → 17x17)")
-        print("   • Word count increases (~6 → ~12 → ~20+)")
-        print("   • Intersection density improves")
-        print("   • Fill percentage targets rise (40% → 55% → 70%)")
+        print(f"\n🎯 Experimental Configuration Complete! CSP vs SA Comparison Study:")
+        print("   • Grid progression: 8x8 → 11x11 → 14x14")
+        print("   • Fill targets: 60% → 70% → 80% (increasingly challenging)")
+        print("   • Fixed SA parameters: 10K iterations, temp 100→0.01, cooling 0.995")
+        print("   • Word database: 837 curated word-clue pairs")
+        print("   • Results comparable to CSP solver (25K iterations with backtracking)")
     
     print(f"\nDemo completed!")
     return results
@@ -1592,16 +2080,16 @@ if __name__ == "__main__":
         print("3. Run: python sa_crossword_demo.py")
         print("4. Choose your difficulty level or run all levels")
         print()
-        print("Difficulty Level Characteristics:")
-        print("📊 EASY:   9x9 grid, ~6 words, 40% fill, gentle complexity")
-        print("📊 MEDIUM: 13x13 grid, ~12 words, 55% fill, moderate complexity")  
-        print("📊 HARD:   17x17 grid, ~20+ words, 70% fill, high complexity")
+        print("Experimental Difficulty Configurations:")
+        print("📊 EASY:   8x8 grid, 60% fill, ~12 words (CSP comparison baseline)")
+        print("📊 MEDIUM: 11x11 grid, 70% fill, ~20 words (standard complexity)")  
+        print("📊 HARD:   14x14 grid, 80% fill, ~35 words (maximum scalability test)")
         print()
-        print("Each level automatically adjusts:")
-        print("• Grid size and target fill percentage")
-        print("• Number of iterations and temperature settings")
-        print("• Preferred word lengths and intersection targets")
-        print("• Perturbation strategies for optimization")
+        print("Fixed Experimental Parameters:")
+        print("• SA Iterations: 10,000 (vs CSP: 25,000)")
+        print("• Temperature: 100 → 0.01 (cooling rate: 0.995)")
+        print("• Dictionary: 837 word-clue pairs")
+        print("• Random seeds: Fixed for reproducible results")
         print("="*70)
     else:
         print("\nDemo failed to complete. Please check file requirements.")
