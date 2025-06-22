@@ -1,12 +1,25 @@
 #!/usr/bin/env python3
 """
-Complete Simulated Annealing Crossword Generator Demo - External Word Manager Version
+A sophisticated crossword puzzle generator using simulated annealing optimization
+to create high-quality crosswords at three difficulty levels (Easy, Medium, Hard).
 
-This version uses your external word_data.py and clues_bigdave.csv instead of the built-in word list.
-Requires: word_data.py and clues_bigdave.csv in the same directory
+OVERVIEW:
+--------
+This system generates crossword puzzles by treating crossword creation as an 
+optimization problem. Using simulated annealing, it iteratively places, removes, 
+swaps, and relocates words to maximize puzzle quality while meeting difficulty-
+specific targets for word count, intersections, and grid fill percentage.
 
-Usage:
-    python sa_crossword_demo.py
+FEATURES:
+---------
+• Multi-Difficulty Support: Easy (9x9), Medium (13x13), Hard (17x17) grids
+• Real Clue Integration: Uses external CSV database of cryptic crossword clues
+• Smart Optimization: Intersection-focused placement with target achievement bonuses
+• Quality Metrics: Tracks connectivity, density, intersection count, and fill percentage
+• Progressive Complexity: Each difficulty level uses tailored optimization strategies
+• Duplicate Prevention: Robust validation to ensure unique word placements
+• Interactive Interface: Choose individual difficulties or run complete progression
+
 """
 
 import random
