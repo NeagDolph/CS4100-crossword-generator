@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Complete Simulated Annealing Crossword Generator Demo
+Complete Simulated Annealing Crossword Generator Demo - External Word Manager Version
 
-This is a self-contained demo that generates crossword puzzles using simulated annealing.
-Run this script directly to see the SA crossword generator in action.
+This version uses your external word_data.py and clues_bigdave.csv instead of the built-in word list.
+Requires: word_data.py and clues_bigdave.csv in the same directory
 
 Usage:
     python sa_crossword_demo.py
@@ -17,6 +17,103 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 from enum import Enum
 import copy
+import csv
+import os
+import sys
+import time
+
+# Import the WordDataManager from your word_data.py
+try:
+    from word_data import WordDataManager as BaseWordDataManager, WordClue
+except ImportError:
+    print("Error: Could not import WordDataManager from word_data.py")
+    print("Please ensure word_data.py is in the same directory as this script")
+    sys.exit(1)
+
+# Create a wrapper class that handles different CSV column names
+class WordDataManagerWrapper(BaseWordDataManager):
+    """Wrapper that adapts to different CSV column naming conventions."""
+    
+    def load_data(self) -> bool:
+        """
+        Load word-clue data from CSV file with flexible column naming.
+        Handles both 'word'/'clue' and 'answer'/'clue' column formats.
+        """
+        if not os.path.exists(self.csv_file_path):
+            print(f"Warning: CSV file {self.csv_file_path} not found")
+            return False
+        
+        try:
+            # Try different encodings to handle various CSV formats
+            encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+            
+            for encoding in encodings:
+                try:
+                    with open(self.csv_file_path, 'r', encoding=encoding) as file:
+                        reader = csv.DictReader(file)
+                        
+                        # Check what columns are available
+                        fieldnames = reader.fieldnames
+                        print(f"CSV columns found: {fieldnames}")
+                        
+                        # Determine which column names to use
+                        word_column = None
+                        clue_column = None
+                        
+                        if 'word' in fieldnames:
+                            word_column = 'word'
+                        elif 'answer' in fieldnames:
+                            word_column = 'answer'
+                        
+                        if 'clue' in fieldnames:
+                            clue_column = 'clue'
+                        
+                        if not word_column or not clue_column:
+                            print(f"Error: Could not find required columns. Available: {fieldnames}")
+                            print("Expected: 'word' or 'answer' AND 'clue'")
+                            return False
+                        
+                        print(f"Using columns: word='{word_column}', clue='{clue_column}'")
+                        
+                        for row in reader:
+                            # Skip rows with missing data
+                            if not row.get(word_column) or not row.get(clue_column):
+                                continue
+                                
+                            word = row[word_column].strip()
+                            # Skip words containing dashes or spaces
+                            if '-' in word or ' ' in word:
+                                continue
+                            
+                            word_clue = WordClue(
+                                word=word,
+                                clue=row[clue_column].strip(),
+                                date=row.get('puzzle_date', '').strip() if row.get('puzzle_date') else None
+                            )
+                            
+                            self.word_clues.append(word_clue)
+                            
+                            # Build lookup dictionary
+                            word = word_clue.word
+                            if word not in self.word_to_clues:
+                                self.word_to_clues[word] = []
+                            self.word_to_clues[word].append(word_clue)
+                    
+                    self._loaded = True
+                    print(f"Loaded {len(self.word_clues)} word-clue pairs from {self.csv_file_path} (encoding: {encoding})")
+                    return True
+                    
+                except UnicodeDecodeError:
+                    # Try next encoding
+                    continue
+            
+            # If all encodings failed
+            print(f"Error: Could not decode CSV file with any supported encoding")
+            return False
+            
+        except Exception as e:
+            print(f"Error loading CSV file: {e}")
+            return False
 
 # Utility functions
 def exponential_random_choice(max_val: int, lambd: float = 0.5) -> int:
@@ -189,103 +286,6 @@ class CrosswordGrid:
             lines.append(line)
         return "\n".join(lines)
 
-class MockWordDataManager:
-    """Mock word data manager with built-in word list."""
-    
-    def __init__(self):
-        # Expanded word list for better crossword generation
-        self.word_list = [
-            ("CAT", "Feline pet"), ("DOG", "Canine companion"), ("BIRD", "Flying animal"),
-            ("FISH", "Swimming creature"), ("TREE", "Woody plant"), ("HOUSE", "Dwelling place"),
-            ("WATER", "H2O"), ("LIGHT", "Illumination"), ("MUSIC", "Sound art"),
-            ("BOOK", "Reading material"), ("PHONE", "Communication device"), ("GARDEN", "Outdoor space"),
-            ("KITCHEN", "Cooking room"), ("BEDROOM", "Sleeping room"), ("WINDOW", "Glass opening"),
-            ("DOOR", "Entry way"), ("CHAIR", "Seating furniture"), ("TABLE", "Flat surface"),
-            ("FLOWER", "Blooming plant"), ("BREAD", "Baked food"), ("CHEESE", "Dairy product"),
-            ("APPLE", "Red fruit"), ("ORANGE", "Citrus fruit"), ("BANANA", "Yellow fruit"),
-            ("PIZZA", "Italian dish"), ("PASTA", "Italian noodles"), ("SALAD", "Green dish"),
-            ("COFFEE", "Morning drink"), ("TEA", "Hot beverage"), ("JUICE", "Fruit drink"),
-            ("MILK", "Dairy drink"), ("BUTTER", "Dairy spread"), ("SUGAR", "Sweet substance"),
-            ("SALT", "Seasoning"), ("PEPPER", "Spice"), ("ONION", "Vegetable"),
-            ("GARLIC", "Aromatic bulb"), ("TOMATO", "Red vegetable"), ("CARROT", "Orange vegetable"),
-            ("POTATO", "Starchy tuber"), ("LETTUCE", "Leafy green"), ("SPINACH", "Dark green"),
-            ("CHICKEN", "Poultry"), ("BEEF", "Red meat"), ("PORK", "Pig meat"),
-            ("LOBSTER", "Crustacean"), ("SHRIMP", "Shellfish"), ("SALMON", "Pink fish"),
-            ("TUNA", "Ocean fish"), ("RICE", "Grain staple"), ("CORN", "Yellow grain"),
-            ("WHEAT", "Bread grain"), ("OATS", "Breakfast grain"), ("BEANS", "Protein legume"),
-            ("PEAS", "Green legume"), ("NUTS", "Tree seeds"), ("HONEY", "Bee product"),
-            ("EGGS", "Protein source"), ("WINE", "Grape beverage"), ("BEER", "Hop beverage"),
-            ("SODA", "Fizzy drink"), ("CAKE", "Sweet dessert"), ("PIE", "Baked dessert"),
-            ("ICE", "Frozen water"), ("SNOW", "Frozen precipitation"), ("RAIN", "Water drops"),
-            ("SUN", "Solar star"), ("MOON", "Earth satellite"), ("STAR", "Celestial body"),
-            ("SKY", "Atmosphere"), ("CLOUD", "Water vapor"), ("WIND", "Moving air"),
-            ("FIRE", "Combustion"), ("EARTH", "Our planet"), ("OCEAN", "Large water body"),
-            ("LAKE", "Inland water"), ("RIVER", "Flowing water"), ("MOUNTAIN", "High elevation"),
-            ("HILL", "Small mountain"), ("VALLEY", "Low area"), ("FOREST", "Many trees"),
-            ("FIELD", "Open area"), ("ROAD", "Path for vehicles"), ("BRIDGE", "Crossing structure"),
-            ("BUILDING", "Structure"), ("SCHOOL", "Learning place"), ("HOSPITAL", "Medical facility"),
-            ("STORE", "Shopping place"), ("MARKET", "Trading place"), ("PARK", "Recreation area"),
-            ("BEACH", "Sandy shore"), ("ISLAND", "Land surrounded by water"), ("DESERT", "Dry region"),
-            ("JUNGLE", "Dense forest"), ("CITY", "Urban area"), ("TOWN", "Small city"),
-            ("VILLAGE", "Small settlement"), ("COUNTRY", "Nation"), ("WORLD", "Planet Earth"),
-            ("UNIVERSE", "All existence"), ("SPACE", "Outer void"), ("TIME", "Duration"),
-            ("LIFE", "Living existence"), ("DEATH", "End of life"), ("BIRTH", "Beginning of life"),
-            ("CHILD", "Young person"), ("ADULT", "Grown person"), ("FAMILY", "Related group"),
-            ("FRIEND", "Close companion"), ("LOVE", "Deep affection"), ("PEACE", "Tranquility"),
-            ("WAR", "Armed conflict"), ("HEALTH", "Wellness"), ("MEDICINE", "Healing substance"),
-            ("DOCTOR", "Medical professional"), ("NURSE", "Medical caregiver"), ("TEACHER", "Educator"),
-            ("STUDENT", "Learner"), ("WORKER", "Employee"), ("ARTIST", "Creative person"),
-            ("WRITER", "Author"), ("MUSICIAN", "Sound artist"), ("DANCER", "Movement artist"),
-            ("ACTOR", "Performer"), ("SINGER", "Vocal artist"), ("PAINTER", "Visual artist"),
-            ("COMPUTER", "Electronic device"), ("INTERNET", "Global network"), ("EMAIL", "Electronic mail"),
-            ("WEBSITE", "Online page"), ("SOCIAL", "Community related"), ("MEDIA", "Communication channel"),
-            ("NEWS", "Current events"), ("RADIO", "Audio broadcast"), ("TELEVISION", "Video broadcast"),
-            ("MOVIE", "Film"), ("SHOW", "Performance"), ("GAME", "Entertainment"), ("SPORT", "Athletic activity"),
-            ("TEAM", "Group"), ("PLAYER", "Participant"), ("WINNER", "Victor"), ("CHAMPION", "Top winner"),
-            ("TROPHY", "Award"), ("MEDAL", "Honor"), ("PRIZE", "Reward"), ("GIFT", "Present"),
-            ("PARTY", "Celebration"), ("BIRTHDAY", "Annual celebration"), ("HOLIDAY", "Special day"),
-            ("VACATION", "Time off"), ("TRAVEL", "Journey"), ("TRIP", "Short journey"),
-            ("ADVENTURE", "Exciting experience"), ("DISCOVERY", "Finding"), ("INVENTION", "Creation"),
-            ("SCIENCE", "Knowledge pursuit"), ("RESEARCH", "Investigation"), ("EXPERIMENT", "Test"),
-            ("LABORATORY", "Research facility"), ("LIBRARY", "Book collection"), ("MUSEUM", "Exhibit hall"),
-            ("THEATER", "Performance venue"), ("CONCERT", "Musical event"), ("FESTIVAL", "Celebration"),
-            ("MARKET", "Trading place"), ("SHOP", "Store"), ("MALL", "Shopping center"),
-            ("RESTAURANT", "Dining place"), ("CAFE", "Coffee shop"), ("BAR", "Drinking establishment"),
-            ("HOTEL", "Lodging"), ("MOTEL", "Roadside lodging"), ("RESORT", "Vacation spot"),
-            ("CABIN", "Small house"), ("TENT", "Portable shelter"), ("CAMP", "Temporary stay"),
-            ("HIKE", "Nature walk"), ("CLIMB", "Ascent"), ("SWIM", "Water activity"),
-            ("RUN", "Fast movement"), ("WALK", "Slow movement"), ("JUMP", "Leap"),
-            ("DANCE", "Rhythmic movement"), ("SING", "Vocal music"), ("PLAY", "Recreation"),
-            ("WORK", "Labor"), ("STUDY", "Learning"), ("READ", "Text consumption"),
-            ("WRITE", "Text creation"), ("DRAW", "Visual creation"), ("PAINT", "Color application"),
-            ("COOK", "Food preparation"), ("BAKE", "Oven cooking"), ("GROW", "Cultivation"),
-            ("PLANT", "Vegetation"), ("HARVEST", "Crop gathering"), ("FARM", "Agricultural land"),
-            ("RANCH", "Livestock farm"), ("STABLE", "Horse shelter"), ("BARN", "Farm building"),
-            ("FENCE", "Boundary"), ("GATE", "Entry point"), ("PATH", "Walkway"),
-            ("TRAIL", "Nature path"), ("STREET", "Urban road"), ("AVENUE", "Wide street"),
-            ("HIGHWAY", "Major road"), ("TUNNEL", "Underground passage"), ("SUBWAY", "Underground train")
-        ]
-        
-        self.word_to_clue = {word: clue for word, clue in self.word_list}
-        self._loaded = True
-    
-    def ensure_loaded(self):
-        pass
-    
-    def get_all_words(self):
-        return [word for word, _ in self.word_list]
-    
-    def get_words_by_length(self, min_length=3, max_length=15):
-        return [word for word, _ in self.word_list 
-                if min_length <= len(word) <= max_length]
-    
-    def get_random_words(self, count=50, min_length=3, max_length=15):
-        available = self.get_words_by_length(min_length, max_length)
-        return random.sample(available, min(count, len(available)))
-    
-    def get_clue_for_word(self, word):
-        return self.word_to_clue.get(word.upper(), f"Clue for {word}")
-
 class CrosswordValidator:
     """Utility class for validation operations."""
     
@@ -405,17 +405,26 @@ class CrosswordCreator:
         if not CrosswordValidator.can_place_word(self.grid, word, row, col, direction):
             return False
         
+        # Check for duplicate word placements at the same position
+        word_upper = word.upper()
+        for existing_placement in self.word_placements:
+            if (existing_placement.word == word_upper and 
+                existing_placement.row == row and 
+                existing_placement.col == col and 
+                existing_placement.direction == direction):
+                return False  # Already placed at this exact position
+        
         if not clue and self.word_data_manager:
             clue = self.word_data_manager.get_clue_for_word(word) or ""
         
-        placement = WordPlacement(word.upper(), row, col, direction, clue)
+        placement = WordPlacement(word_upper, row, col, direction, clue)
         
         test_placements = self.word_placements + [placement]
         if not CrosswordValidator.validate_intersections(self.grid, test_placements):
             return False
         
         # Place the word
-        for i, letter in enumerate(word.upper()):
+        for i, letter in enumerate(word_upper):
             if direction == Direction.ACROSS:
                 self.grid.set_letter(row, col + i, letter, is_given=True)
             else:
@@ -653,53 +662,137 @@ class SAState:
         )
 
 class SAFitnessEvaluator:
-    """Fitness evaluator for simulated annealing crossword generation."""
+    """Enhanced fitness evaluator with multi-objective optimization for crossword generation."""
     
-    def __init__(self, preferred_length: int = 6):
+    def __init__(self, preferred_length: int = 6, difficulty_config: Optional['DifficultyConfig'] = None):
         self.preferred_length = preferred_length
-        self.weights = {
-            'connectivity': 50.0,
-            'intersections': 2.0,
-            'fill_efficiency': 1.0,
-            'word_count': 0.5,
-            'length_diversity': 0.3,
-            'compactness': 0.2,
-        }
+        self.difficulty_config = difficulty_config
+        
+        # Dynamic weights based on difficulty level
+        if difficulty_config:
+            if difficulty_config.name == "EASY":
+                self.weights = {
+                    'connectivity': 30.0,
+                    'word_count': 15.0,        # Higher priority for word count
+                    'intersections': 10.0,     # Moderate intersection priority
+                    'fill_efficiency': 5.0,
+                    'length_diversity': 2.0,
+                    'compactness': 3.0,
+                    'target_achievement': 25.0  # Bonus for meeting targets
+                }
+            elif difficulty_config.name == "MEDIUM":
+                self.weights = {
+                    'connectivity': 25.0,
+                    'word_count': 12.0,
+                    'intersections': 15.0,     # Higher intersection priority
+                    'fill_efficiency': 8.0,
+                    'length_diversity': 3.0,
+                    'compactness': 2.0,
+                    'target_achievement': 30.0
+                }
+            else:  # HARD
+                self.weights = {
+                    'connectivity': 20.0,
+                    'word_count': 10.0,
+                    'intersections': 20.0,     # Highest intersection priority
+                    'fill_efficiency': 15.0,   # Higher fill priority
+                    'length_diversity': 5.0,
+                    'compactness': 5.0,
+                    'target_achievement': 40.0  # Highest bonus for meeting targets
+                }
+        else:
+            # Default weights
+            self.weights = {
+                'connectivity': 25.0,
+                'intersections': 10.0,
+                'fill_efficiency': 5.0,
+                'word_count': 8.0,
+                'length_diversity': 2.0,
+                'compactness': 3.0,
+                'target_achievement': 20.0
+            }
     
     def evaluate_fitness(self, creator: CrosswordCreator) -> float:
-        """Calculate comprehensive fitness score for the crossword puzzle."""
+        """Calculate comprehensive fitness score with target achievement bonuses."""
         stats = creator.get_puzzle_statistics()
         
         if stats['word_count'] > 1 and not stats['is_connected']:
             return 0.0
         
+        # Base component scores
         connectivity_score = self.weights['connectivity'] if stats['is_connected'] else 0.0
         
+        # Word count score with exponential rewards for hitting targets
+        word_count = stats['word_count']
+        if self.difficulty_config:
+            target_words = self.difficulty_config.min_words_target
+            if word_count >= target_words:
+                word_count_score = self.weights['word_count'] * 2.0  # Double reward for meeting target
+            else:
+                word_count_score = self.weights['word_count'] * (word_count / target_words)
+        else:
+            word_count_score = self.weights['word_count'] * min(2.0, word_count / 10.0)
+        
+        # Intersection score with exponential rewards
         intersection_count = stats['intersection_count']
-        word_count = max(1, stats['word_count'])
-        intersection_score = min(50.0, intersection_count * self.weights['intersections'])
+        if self.difficulty_config:
+            target_intersections = self.difficulty_config.min_intersections_target
+            if intersection_count >= target_intersections:
+                intersection_score = self.weights['intersections'] * 2.0  # Double reward
+            else:
+                intersection_score = self.weights['intersections'] * (intersection_count / target_intersections)
+        else:
+            intersection_score = self.weights['intersections'] * min(2.0, intersection_count / 20.0)
         
-        fill_score = stats['fill_percentage'] * self.weights['fill_efficiency']
+        # Fill efficiency score
+        fill_percentage = stats['fill_percentage']
+        if self.difficulty_config:
+            target_fill = self.difficulty_config.target_fill
+            if fill_percentage >= target_fill:
+                fill_score = self.weights['fill_efficiency'] * 2.0  # Double reward
+            else:
+                fill_score = self.weights['fill_efficiency'] * (fill_percentage / target_fill)
+        else:
+            fill_score = self.weights['fill_efficiency'] * (fill_percentage / 50.0)
         
-        optimal_words = max(10, stats['total_cells'] // (self.preferred_length * 2))
-        word_count_score = min(20.0, (word_count / optimal_words) * 20.0) * self.weights['word_count']
-        
+        # Length diversity score
         if word_count > 1:
             word_lengths = [len(wp.word) for wp in creator.word_placements]
             length_std = np.std(word_lengths) if len(word_lengths) > 1 else 0
-            diversity_score = min(10.0, length_std * 2) * self.weights['length_diversity']
+            diversity_score = min(self.weights['length_diversity'], length_std * 0.5)
         else:
             diversity_score = 0.0
         
+        # Compactness score
         compactness_score = self._calculate_compactness(creator) * self.weights['compactness']
+        
+        # Target achievement bonus
+        target_achievement_score = 0.0
+        if self.difficulty_config:
+            targets_met = 0
+            if word_count >= self.difficulty_config.min_words_target:
+                targets_met += 1
+            if intersection_count >= self.difficulty_config.min_intersections_target:
+                targets_met += 1
+            if fill_percentage >= self.difficulty_config.target_fill:
+                targets_met += 1
+            
+            # Exponential bonus for meeting multiple targets
+            if targets_met == 3:
+                target_achievement_score = self.weights['target_achievement'] * 3.0
+            elif targets_met == 2:
+                target_achievement_score = self.weights['target_achievement'] * 1.5
+            elif targets_met == 1:
+                target_achievement_score = self.weights['target_achievement'] * 0.5
         
         total_fitness = (
             connectivity_score +
+            word_count_score +
             intersection_score +
             fill_score +
-            word_count_score +
             diversity_score +
-            compactness_score
+            compactness_score +
+            target_achievement_score
         )
         
         return total_fitness
@@ -731,28 +824,57 @@ class SAFitnessEvaluator:
 class SimulatedAnnealingSolver:
     """Main simulated annealing solver for crossword generation."""
     
-    def __init__(self, word_data_manager, preferred_length: int = 6):
+    def __init__(self, word_data_manager, preferred_length: int = 6, difficulty_config: Optional['DifficultyConfig'] = None):
         self.word_data_manager = word_data_manager
         self.preferred_length = preferred_length
+        self.difficulty_config = difficulty_config
         self.word_index = FastWordIndex(word_data_manager, preferred_length)
-        self.fitness_evaluator = SAFitnessEvaluator(preferred_length)
+        self.fitness_evaluator = SAFitnessEvaluator(preferred_length, difficulty_config)
         
         self.initial_temperature = 100.0
         self.final_temperature = 0.01
         self.cooling_schedule = CoolingSchedule.EXPONENTIAL
         self.cooling_rate = 0.995
         
-        self.perturbation_weights = {
-            PerturbationType.ADD_WORD: 0.5,
-            PerturbationType.REMOVE_WORD: 0.2,
-            PerturbationType.SWAP_WORD: 0.2,
-            PerturbationType.RELOCATE_WORD: 0.1
-        }
+        # Adaptive perturbation weights based on difficulty
+        if difficulty_config:
+            if difficulty_config.name == "EASY":
+                self.perturbation_weights = {
+                    PerturbationType.ADD_WORD: 0.7,      # Focus on adding words
+                    PerturbationType.REMOVE_WORD: 0.1,
+                    PerturbationType.SWAP_WORD: 0.15,
+                    PerturbationType.RELOCATE_WORD: 0.05
+                }
+            elif difficulty_config.name == "MEDIUM":
+                self.perturbation_weights = {
+                    PerturbationType.ADD_WORD: 0.5,
+                    PerturbationType.REMOVE_WORD: 0.15,
+                    PerturbationType.SWAP_WORD: 0.25,    # More swapping for intersections
+                    PerturbationType.RELOCATE_WORD: 0.1
+                }
+            else:  # HARD
+                self.perturbation_weights = {
+                    PerturbationType.ADD_WORD: 0.4,
+                    PerturbationType.REMOVE_WORD: 0.2,
+                    PerturbationType.SWAP_WORD: 0.3,     # Highest swapping for complexity
+                    PerturbationType.RELOCATE_WORD: 0.1
+                }
+        else:
+            self.perturbation_weights = {
+                PerturbationType.ADD_WORD: 0.5,
+                PerturbationType.REMOVE_WORD: 0.2,
+                PerturbationType.SWAP_WORD: 0.2,
+                PerturbationType.RELOCATE_WORD: 0.1
+            }
         
         self.current_state: Optional[SAState] = None
         self.best_state: Optional[SAState] = None
         self.accepted_moves = 0
         self.rejected_moves = 0
+        
+        # Difficulty-specific targets (can be set externally)
+        self.min_words_target = 0
+        self.min_intersections_target = 0
     
     def solve(self, creator: CrosswordCreator, max_iterations: int = 5000, 
               target_fill: float = 70.0, random_seed: Optional[int] = None) -> bool:
@@ -787,15 +909,22 @@ class SimulatedAnnealingSolver:
             self.current_state.iteration = iteration
             
             if iteration % 500 == 0 and iteration > 0:
-                acceptance_rate = self.accepted_moves / (self.accepted_moves + self.rejected_moves) * 100
+                total_moves = self.accepted_moves + self.rejected_moves
+                acceptance_rate = (self.accepted_moves / total_moves * 100) if total_moves > 0 else 0.0
                 print(f"Iteration {iteration}: temp={temperature:.3f}, "
                       f"fill={self.current_state.fill_percentage:.1f}%, "
                       f"fitness={self.current_state.fitness_score:.1f}, "
                       f"words={len(self.current_state.word_placements)}, "
                       f"acceptance={acceptance_rate:.1f}%")
             
-            if self.current_state.fill_percentage >= target_fill:
-                print(f"[SUCCESS] Target achieved! Fill: {self.current_state.fill_percentage:.1f}% "
+            # Check for early success based on difficulty-specific criteria
+            if (self.current_state.fill_percentage >= target_fill and 
+                len(self.current_state.word_placements) >= getattr(self, 'min_words_target', 0)):
+                print(f"[SUCCESS] All targets achieved! Fill: {self.current_state.fill_percentage:.1f}%, "
+                      f"Words: {len(self.current_state.word_placements)} in {iteration} iterations")
+                break
+            elif self.current_state.fill_percentage >= target_fill:
+                print(f"[SUCCESS] Fill target achieved! Fill: {self.current_state.fill_percentage:.1f}% "
                       f"in {iteration} iterations")
                 break
             
@@ -806,6 +935,9 @@ class SimulatedAnnealingSolver:
             neighbor_creator = self._create_neighbor_state(creator, used_words)
             if neighbor_creator is None:
                 continue
+            
+            # Ensure no duplicates in the neighbor state
+            neighbor_creator = self._clean_duplicate_placements(neighbor_creator)
             
             neighbor_fitness = self.fitness_evaluator.evaluate_fitness(neighbor_creator)
             neighbor_fill = self._calculate_fill_percentage(neighbor_creator)
@@ -838,6 +970,16 @@ class SimulatedAnnealingSolver:
             self._apply_state_to_creator(self.best_state, creator)
             self.current_state = self.best_state
         
+        # Final cleanup to ensure no duplicates remain
+        creator = self._clean_duplicate_placements(creator)
+        
+        # Update final statistics
+        final_stats = creator.get_puzzle_statistics()
+        print(f"\nFinal cleanup complete:")
+        print(f"  Unique words: {final_stats['word_count']}")
+        print(f"  Total intersections: {final_stats['intersection_count']}")
+        print(f"  Fill percentage: {final_stats['fill_percentage']:.1f}%")
+        
         return True
     
     def _update_temperature(self, iteration: int, max_iterations: int) -> float:
@@ -854,7 +996,15 @@ class SimulatedAnnealingSolver:
     def _create_neighbor_state(self, creator: CrosswordCreator, used_words: Set[str]) -> Optional[CrosswordCreator]:
         """Create a neighbor state by applying a random perturbation."""
         neighbor_creator = self._copy_creator(creator)
-        perturbation_type = self._choose_perturbation_type(len(creator.word_placements))
+        
+        # Validate that the copied creator doesn't have duplicates
+        neighbor_creator = self._clean_duplicate_placements(neighbor_creator)
+        
+        # Update used_words to reflect the actual state
+        used_words.clear()
+        used_words.update(wp.word.upper() for wp in neighbor_creator.word_placements)
+        
+        perturbation_type = self._choose_perturbation_type(len(neighbor_creator.word_placements))
         
         if perturbation_type == PerturbationType.ADD_WORD:
             return self._add_word_perturbation(neighbor_creator, used_words)
@@ -866,6 +1016,36 @@ class SimulatedAnnealingSolver:
             return self._relocate_word_perturbation(neighbor_creator, used_words)
         
         return None
+    
+    def _clean_duplicate_placements(self, creator: CrosswordCreator) -> CrosswordCreator:
+        """Remove any duplicate word placements from the creator."""
+        unique_placements = []
+        seen_placements = set()
+        
+        for placement in creator.word_placements:
+            placement_key = (placement.word, placement.row, placement.col, placement.direction)
+            if placement_key not in seen_placements:
+                unique_placements.append(placement)
+                seen_placements.add(placement_key)
+            else:
+                print(f"Removing duplicate placement: {placement.word} at ({placement.row},{placement.col})")
+        
+        if len(unique_placements) != len(creator.word_placements):
+            print(f"Cleaned {len(creator.word_placements) - len(unique_placements)} duplicate placements")
+            
+            # Rebuild the creator with only unique placements
+            new_grid = CrosswordGrid(creator.grid.size)
+            new_creator = CrosswordCreator(new_grid, creator.word_data_manager)
+            
+            for placement in unique_placements:
+                success = new_creator.place_word(placement.word, placement.row, placement.col,
+                                               placement.direction, placement.clue)
+                if not success:
+                    print(f"Warning: Could not re-place {placement.word} during cleanup")
+            
+            return new_creator
+        
+        return creator
     
     def _choose_perturbation_type(self, word_count: int) -> PerturbationType:
         """Choose perturbation type based on current state and weights."""
@@ -899,15 +1079,32 @@ class SimulatedAnnealingSolver:
             return None
         
         random.shuffle(empty_slots)
+        attempts = 0
+        max_attempts = min(50, len(empty_slots) * 10)  # Limit attempts to prevent infinite loops
+        
         for slot in empty_slots[:5]:
+            if attempts >= max_attempts:
+                break
+                
             compatible_words = self.word_index.find_compatible_words(slot, max_results=50)
             available_words = [word for word in compatible_words if word.upper() not in used_words]
             
             if available_words:
                 word = random.choice(available_words[:10])
-                success = creator.place_word(word.upper(), slot.row, slot.col, slot.direction)
-                if success:
-                    return creator
+                
+                # Double-check this word isn't already placed at this position
+                placement_exists = any(
+                    wp.word == word.upper() and wp.row == slot.row and 
+                    wp.col == slot.col and wp.direction == slot.direction 
+                    for wp in creator.word_placements
+                )
+                
+                if not placement_exists:
+                    success = creator.place_word(word.upper(), slot.row, slot.col, slot.direction)
+                    if success:
+                        return creator
+                        
+            attempts += 1
         
         return None
     
@@ -1032,22 +1229,49 @@ class SimulatedAnnealingSolver:
     
     def _apply_state_to_creator(self, state: SAState, creator: CrosswordCreator):
         """Apply a state to a CrosswordCreator instance."""
+        # Clear existing state completely
         creator.grid = CrosswordGrid(creator.grid.size)
         creator.word_placements.clear()
         
+        # Restore blocked cells
         for row, col in state.blocked_cells:
             creator.grid.set_blocked(row, col, True)
         
+        # Track which words we've successfully placed to avoid duplicates
+        placed_words = set()
+        successful_placements = []
+        
         for placement in state.word_placements:
-            success = creator.place_word(placement.word, placement.row, placement.col, 
-                                       placement.direction, placement.clue)
-            if not success:
-                print(f"Warning: Failed to restore placement for '{placement.word}'")
+            # Create a unique key for this placement
+            placement_key = (placement.word, placement.row, placement.col, placement.direction)
+            
+            if placement_key not in placed_words:
+                success = creator.place_word(placement.word, placement.row, placement.col, 
+                                           placement.direction, placement.clue)
+                if success:
+                    placed_words.add(placement_key)
+                    successful_placements.append(placement)
+                else:
+                    print(f"Warning: Failed to restore placement for '{placement.word}' at ({placement.row},{placement.col})")
+        
+        # Ensure the creator's word_placements matches what was actually placed
+        if len(creator.word_placements) != len(successful_placements):
+            print(f"Warning: State restoration mismatch. Expected {len(successful_placements)}, got {len(creator.word_placements)}")
+            
+            # Remove any duplicate placements that might have snuck in
+            unique_placements = []
+            seen_keys = set()
+            for wp in creator.word_placements:
+                key = (wp.word, wp.row, wp.col, wp.direction)
+                if key not in seen_keys:
+                    unique_placements.append(wp)
+                    seen_keys.add(key)
+            creator.word_placements = unique_placements
     
     def get_statistics(self) -> Dict[str, any]:
         """Get solver statistics."""
         total_moves = self.accepted_moves + self.rejected_moves
-        acceptance_rate = self.accepted_moves / total_moves if total_moves > 0 else 0
+        acceptance_rate = (self.accepted_moves / total_moves) if total_moves > 0 else 0.0
         
         return {
             'accepted_moves': self.accepted_moves,
@@ -1059,79 +1283,316 @@ class SimulatedAnnealingSolver:
             'final_temperature': self.current_state.temperature if self.current_state else 0
         }
 
-def run_demo():
-    """Run the crossword generation demo."""
-    print("="*60)
-    print("SIMULATED ANNEALING CROSSWORD GENERATOR DEMO")
-    print("="*60)
+@dataclass
+class DifficultyConfig:
+    """Configuration for different difficulty levels."""
+    name: str
+    grid_size: int
+    target_fill: float
+    max_iterations: int
+    initial_temperature: float
+    cooling_rate: float
+    preferred_length: int
+    min_words_target: int
+    min_intersections_target: int
     
-    # Initialize components
-    word_data_manager = MockWordDataManager()
-    grid = CrosswordGrid(11)  # 11x11 grid for demo
+def get_difficulty_configs():
+    """Get configurations for all difficulty levels."""
+    return {
+        'easy': DifficultyConfig(
+            name="EASY",
+            grid_size=9,
+            target_fill=40.0,
+            max_iterations=2000,
+            initial_temperature=30.0,
+            cooling_rate=0.98,
+            preferred_length=5,
+            min_words_target=6,
+            min_intersections_target=8
+        ),
+        'medium': DifficultyConfig(
+            name="MEDIUM", 
+            grid_size=13,
+            target_fill=55.0,
+            max_iterations=4000,
+            initial_temperature=60.0,
+            cooling_rate=0.99,
+            preferred_length=6,
+            min_words_target=12,
+            min_intersections_target=20
+        ),
+        'hard': DifficultyConfig(
+            name="HARD",
+            grid_size=17,
+            target_fill=70.0,
+            max_iterations=6000,
+            initial_temperature=100.0,
+            cooling_rate=0.995,
+            preferred_length=7,
+            min_words_target=20,
+            min_intersections_target=35
+        )
+    }
+
+def generate_crossword_by_difficulty(word_data_manager, config: DifficultyConfig, random_seed=None):
+    """Generate a crossword puzzle for a specific difficulty level."""
+    print("="*70)
+    print(f"GENERATING {config.name} CROSSWORD PUZZLE")
+    print("="*70)
+    print(f"Grid Size: {config.grid_size}x{config.grid_size}")
+    print(f"Target Fill: {config.target_fill}%")
+    print(f"Target Words: {config.min_words_target}+")
+    print(f"Target Intersections: {config.min_intersections_target}+")
+    print(f"Max Iterations: {config.max_iterations}")
+    print()
+    
+    # Initialize grid and creator
+    grid = CrosswordGrid(config.grid_size)
     creator = CrosswordCreator(grid, word_data_manager)
     
-    # Create and configure SA solver
-    sa_solver = SimulatedAnnealingSolver(word_data_manager, preferred_length=6)
-    sa_solver.initial_temperature = 50.0
-    sa_solver.cooling_rate = 0.99
+    # Create and configure SA solver based on difficulty
+    sa_solver = SimulatedAnnealingSolver(word_data_manager, preferred_length=config.preferred_length)
+    sa_solver.initial_temperature = config.initial_temperature
+    sa_solver.cooling_rate = config.cooling_rate
+    
+    # Set difficulty-specific targets for the solver
+    sa_solver.min_words_target = config.min_words_target
+    sa_solver.min_intersections_target = config.min_intersections_target
+    
+    # Adjust perturbation weights based on difficulty
+    if config.name == "EASY":
+        # Easy mode: Focus more on adding words, less on complex operations
+        sa_solver.perturbation_weights = {
+            PerturbationType.ADD_WORD: 0.6,
+            PerturbationType.REMOVE_WORD: 0.15,
+            PerturbationType.SWAP_WORD: 0.15,
+            PerturbationType.RELOCATE_WORD: 0.1
+        }
+    elif config.name == "HARD":
+        # Hard mode: More aggressive optimization
+        sa_solver.perturbation_weights = {
+            PerturbationType.ADD_WORD: 0.4,
+            PerturbationType.REMOVE_WORD: 0.25,
+            PerturbationType.SWAP_WORD: 0.25,
+            PerturbationType.RELOCATE_WORD: 0.1
+        }
     
     # Run the solver
-    print(f"Generating {grid.size}x{grid.size} crossword puzzle...")
-    print(f"Available words: {len(word_data_manager.get_all_words())}")
-    print()
+    start_time = time.time() if 'time' in globals() else None
     
     success = sa_solver.solve(
         creator=creator,
-        max_iterations=3000,
-        target_fill=60.0,
-        random_seed=42
+        max_iterations=config.max_iterations,
+        target_fill=config.target_fill,
+        random_seed=random_seed
     )
     
-    # Display results
-    print("\n" + "="*60)
-    print("GENERATION COMPLETE!")
-    print("="*60)
+    end_time = time.time() if 'time' in globals() else None
     
-    stats = creator.get_puzzle_statistics()
+    # Get results
+    puzzle_stats = creator.get_puzzle_statistics()
     sa_stats = sa_solver.get_statistics()
     
-    print(f"\nFinal Statistics:")
-    print(f"  Fill Percentage: {stats['fill_percentage']:.1f}%")
-    print(f"  Words Placed: {stats['word_count']}")
-    print(f"  Intersections: {stats['intersection_count']}")
-    print(f"  Connected: {stats['is_connected']}")
-    print(f"  Blocked Cells: {stats['blocked_cells']}")
+    # Display results
+    print("\n" + "="*70)
+    print(f"{config.name} CROSSWORD COMPLETE!")
+    print("="*70)
     
-    print(f"\nSA Solver Statistics:")
+    print(f"\nPuzzle Statistics:")
+    print(f"  Grid Size: {config.grid_size}x{config.grid_size}")
+    print(f"  Fill Percentage: {puzzle_stats['fill_percentage']:.1f}%")
+    print(f"  Words Placed: {puzzle_stats['word_count']}")
+    print(f"  Intersections: {puzzle_stats['intersection_count']}")
+    print(f"  Connected: {puzzle_stats['is_connected']}")
+    print(f"  Blocked Cells: {puzzle_stats['blocked_cells']}")
+    
+    # Calculate density metrics
+    total_cells = config.grid_size * config.grid_size
+    word_density = puzzle_stats['word_count'] / total_cells * 100
+    intersection_density = puzzle_stats['intersection_count'] / puzzle_stats['word_count'] if puzzle_stats['word_count'] > 0 else 0
+    
+    print(f"  Word Density: {word_density:.1f} words per 100 cells")
+    print(f"  Intersection Density: {intersection_density:.1f} intersections per word")
+    
+    print(f"\nSolver Performance:")
+    print(f"  Iterations Used: {sa_stats['total_moves']}")
     print(f"  Accepted Moves: {sa_stats['accepted_moves']}")
-    print(f"  Rejected Moves: {sa_stats['rejected_moves']}")
     print(f"  Acceptance Rate: {sa_stats['acceptance_rate']:.1f}%")
     print(f"  Final Fitness: {sa_stats['current_fitness']:.1f}")
-    print(f"  Best Fitness: {sa_stats['best_fitness']:.1f}")
-    print(f"  Final Temperature: {sa_stats['final_temperature']:.6f}")
+    if start_time and end_time:
+        print(f"  Generation Time: {end_time - start_time:.1f} seconds")
+    
+    # Show difficulty achievement
+    words_achieved = puzzle_stats['word_count'] >= config.min_words_target
+    intersections_achieved = puzzle_stats['intersection_count'] >= config.min_intersections_target
+    fill_achieved = puzzle_stats['fill_percentage'] >= config.target_fill
+    
+    print(f"\nDifficulty Targets:")
+    print(f"  Words Target ({config.min_words_target}+): {'✓ ACHIEVED' if words_achieved else '✗ NOT MET'}")
+    print(f"  Intersections Target ({config.min_intersections_target}+): {'✓ ACHIEVED' if intersections_achieved else '✗ NOT MET'}")
+    print(f"  Fill Target ({config.target_fill}%+): {'✓ ACHIEVED' if fill_achieved else '✗ NOT MET'}")
+    
+    difficulty_score = sum([words_achieved, intersections_achieved, fill_achieved])
+    if difficulty_score == 3:
+        print(f"  🎉 PERFECT {config.name} PUZZLE! All targets achieved!")
+    elif difficulty_score >= 2:
+        print(f"  👍 GOOD {config.name} PUZZLE! Most targets achieved!")
+    else:
+        print(f"  ⚠️  {config.name} puzzle partially complete.")
     
     # Display the crossword
-    print(f"\nGenerated Crossword:")
+    print(f"\n{config.name} Crossword Grid:")
     print(creator.grid)
     
-    # Show word list
-    print(f"\nWords in Puzzle ({len(creator.word_placements)} total):")
+    # Show word list with clues
+    print(f"\nWords in {config.name} Puzzle ({len(creator.word_placements)} total):")
     for i, wp in enumerate(creator.word_placements, 1):
         direction = "Across" if wp.direction == Direction.ACROSS else "Down"
         clue = wp.clue if wp.clue else f"Clue for {wp.word}"
-        print(f"  {i:2d}. {wp.word:10s} ({direction:6s}) at ({wp.row:2d},{wp.col:2d}) - {clue}")
+        # Truncate long clues for readability
+        if len(clue) > 60:
+            clue = clue[:57] + "..."
+        print(f"  {i:2d}. {wp.word:12s} ({direction:6s}) at ({wp.row:2d},{wp.col:2d}) - {clue}")
+    
+    return creator, sa_solver, config
+
+def run_demo():
+    """Run the multi-difficulty crossword generation demo."""
+    print("="*70)
+    print("MULTI-DIFFICULTY SIMULATED ANNEALING CROSSWORD GENERATOR")
+    print("="*70)
+    
+    # Find the CSV file - look in current directory and parent directory
+    csv_file = None
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Try different possible locations for the CSV file
+    possible_paths = [
+        "clues_bigdave.csv",  # Current directory
+        os.path.join(current_dir, "clues_bigdave.csv"),  # Same directory as script
+        os.path.join(os.path.dirname(current_dir), "clues_bigdave.csv"),  # Parent directory
+        os.path.join(current_dir, "..", "clues_bigdave.csv"),  # Parent directory (alternative)
+    ]
+    
+    print(f"Looking for CSV file in these locations:")
+    for path in possible_paths:
+        abs_path = os.path.abspath(path)
+        exists = os.path.exists(abs_path)
+        print(f"  {abs_path} - {'Found' if exists else 'Not found'}")
+        if exists and csv_file is None:
+            csv_file = abs_path
+    
+    if csv_file is None:
+        print("Error: Could not find clues_bigdave.csv in any expected location!")
+        return None, None
+    
+    print(f"\nUsing CSV file: {csv_file}")
+    
+    # Initialize word data manager with your CSV
+    print("Loading word data...")
+    word_data_manager = WordDataManagerWrapper(csv_file)
+    
+    # Check if data loaded successfully
+    if not word_data_manager.load_data():
+        print("Failed to load word data! Please ensure clues_bigdave.csv exists in the current directory.")
+        return None, None
+    
+    # Show word data statistics
+    stats = word_data_manager.get_statistics()
+    print(f"Loaded {stats['unique_words']} unique words ({stats['total_entries']} total entries)")
+    print(f"Word lengths: {stats['min_word_length']}-{stats['max_word_length']} characters")
+    print(f"Average word length: {stats['avg_word_length']:.1f}")
+    
+    # Get difficulty configurations
+    configs = get_difficulty_configs()
+    
+    # Ask user which difficulty to run or run all
+    print(f"\nSelect difficulty level:")
+    print("1. Easy (9x9, ~6 words, light complexity)")
+    print("2. Medium (13x13, ~12 words, moderate complexity)")  
+    print("3. Hard (17x17, ~20 words, high complexity)")
+    print("4. All difficulties (run Easy → Medium → Hard)")
+    
+    choice = input("\nEnter your choice (1-4) [default: 4]: ").strip()
+    if not choice:
+        choice = "4"
+    
+    results = []
+    
+    if choice == "1":
+        creator, solver, config = generate_crossword_by_difficulty(word_data_manager, configs['easy'], random_seed=42)
+        results.append((creator, solver, config))
+    elif choice == "2":
+        creator, solver, config = generate_crossword_by_difficulty(word_data_manager, configs['medium'], random_seed=42)
+        results.append((creator, solver, config))
+    elif choice == "3":
+        creator, solver, config = generate_crossword_by_difficulty(word_data_manager, configs['hard'], random_seed=42)
+        results.append((creator, solver, config))
+    else:  # choice == "4" or invalid
+        print("\n🎯 Running all difficulty levels...\n")
+        for difficulty in ['easy', 'medium', 'hard']:
+            creator, solver, config = generate_crossword_by_difficulty(
+                word_data_manager, configs[difficulty], random_seed=42
+            )
+            results.append((creator, solver, config))
+            if difficulty != 'hard':  # Don't print separator after last one
+                print("\n" + "⬇️ " * 35)
+                input("Press Enter to continue to next difficulty level...")
+                print()
+    
+    # Final summary if multiple difficulties were run
+    if len(results) > 1:
+        print("\n" + "="*70)
+        print("DIFFICULTY PROGRESSION SUMMARY")
+        print("="*70)
+        
+        for creator, solver, config in results:
+            stats = creator.get_puzzle_statistics()
+            sa_stats = solver.get_statistics()
+            
+            print(f"\n{config.name}:")
+            print(f"  Grid: {config.grid_size}x{config.grid_size}")
+            print(f"  Words: {stats['word_count']} (target: {config.min_words_target}+)")
+            print(f"  Intersections: {stats['intersection_count']} (target: {config.min_intersections_target}+)")
+            print(f"  Fill: {stats['fill_percentage']:.1f}% (target: {config.target_fill}%+)")
+            print(f"  Fitness: {sa_stats['best_fitness']:.1f}")
+            
+        print(f"\n🎉 Difficulty progression complete! Each level increases complexity:")
+        print("   • Grid size grows (9x9 → 13x13 → 17x17)")
+        print("   • Word count increases (~6 → ~12 → ~20+)")
+        print("   • Intersection density improves")
+        print("   • Fill percentage targets rise (40% → 55% → 70%)")
     
     print(f"\nDemo completed!")
-    
-    return creator, sa_solver
+    return results
 
 if __name__ == "__main__":
-    # Run the demo
-    creator, solver = run_demo()
+    # Run the multi-difficulty demo
+    results = run_demo()
     
-    print("\n" + "="*60)
-    print("To run this demo:")
-    print("1. Save this code as 'sa_crossword_demo.py'")
-    print("2. Run: python sa_crossword_demo.py")
-    print("3. Modify parameters in run_demo() to experiment")
-    print("="*60)
+    if results:
+        print("\n" + "="*70)
+        print("How to use this multi-difficulty crossword generator:")
+        print("="*70)
+        print("1. Save this code as 'sa_crossword_demo.py'")
+        print("2. Ensure 'word_data.py' and 'clues_bigdave.csv' are in the same directory")
+        print("3. Run: python sa_crossword_demo.py")
+        print("4. Choose your difficulty level or run all levels")
+        print()
+        print("Difficulty Level Characteristics:")
+        print("📊 EASY:   9x9 grid, ~6 words, 40% fill, gentle complexity")
+        print("📊 MEDIUM: 13x13 grid, ~12 words, 55% fill, moderate complexity")  
+        print("📊 HARD:   17x17 grid, ~20+ words, 70% fill, high complexity")
+        print()
+        print("Each level automatically adjusts:")
+        print("• Grid size and target fill percentage")
+        print("• Number of iterations and temperature settings")
+        print("• Preferred word lengths and intersection targets")
+        print("• Perturbation strategies for optimization")
+        print("="*70)
+    else:
+        print("\nDemo failed to complete. Please check file requirements.")
+        print("Required files:")
+        print("- word_data.py (your word data manager)")
+        print("- clues_bigdave.csv (your word/clue database)")
+        print("- Both files should be in the same directory as this script")
